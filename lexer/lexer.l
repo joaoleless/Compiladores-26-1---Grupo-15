@@ -15,7 +15,7 @@ STRING      \"[^\"]*\"|\'[^\']*\'
 
 %%
 
-    /* Palavras-chave */
+    /* Palavras relevantes */
 "False"     { printf("PR_FALSO\n"); }
 "None"      { printf("PR_NULO\n"); }
 "True"      { printf("PR_VERDADEIRO\n"); }
@@ -108,9 +108,8 @@ STRING      \"[^\"]*\"|\'[^\']*\'
 "#".*       { /* Ignora comentários */ }
 
     /* Espaços em branco, tabulações e quebras de linha */
-[ \t]+      { /* Ignora espaços em branco e tabulações (por enquanto sem tratar indentação) */ }
+[ \t]+   
 \n          { printf("NOVA_LINHA\n"); }
-\r          { /* Ignora carriage return do Windows */ }
 
     /* Qualquer outro caractere inválido */
 .           { printf("TOKEN_DESCONHECIDO(%s)\n", yytext); }
