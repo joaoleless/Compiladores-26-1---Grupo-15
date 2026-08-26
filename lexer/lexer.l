@@ -1,12 +1,83 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "y.tab.h"
+
+/* Renomeia a função gerada pelo flex para "flex_scan".
+   yylex() de verdade é escrito à mão lá embaixo e faz o controle
+   de INDENT/DEDENT antes de delegar para flex_scan(). */
+#define YY_DECL int flex_scan(void)
 
 int linha_atual = 1;
+
+/* --- controle de indentação --- */
+#define MAX_INDENT 128
+static int indent_stack[MAX_INDENT];
+static int indent_top = 0;      /* indent_stack[indent_top] = nivel atual */
+static int pending_dedents = 0; /* DEDENTs extras a devolver nas proximas chamadas */
+static int paren_depth = 0;     /* profundidade de ( [ {  -> ignora NEWLINE dentro */
+static int last_indent_action = 0; /* 0=nada, 1=INDENT, 2=DEDENT (preenchido por process_indent) */
+
+/* calcula a indentacao de "espacos" (tabs contam 8) e atualiza a pilha de indentacao */
+static void process_indent(const char *espacos) {
+    int indent = 0;
+    for (const char *p = espacos; *p; p++) {
+        if (*p == '\t') indent += 8 - (indent % 8);
+        else indent += 1;
+    }
+    last_indent_action = 0;
+    if (indent > indent_stack[indent_top]) {
+        if (indent_top + 1 >= MAX_INDENT) {
+            fprintf(stderr, "ERRO: indentacao aninhada demais na linha %d\n", linha_atual);
+            exit(1);
+        }
+        indent_stack[++indent_top] = indent;
+        last_indent_action = 1;
+    } else if (indent < indent_stack[indent_top]) {
+        int count = 0;
+        while (indent_top > 0 && indent < indent_stack[indent_top]) {
+            indent_top--;
+            count++;
+        }
+        if (indent != indent_stack[indent_top]) {
+            fprintf(stderr, "ERRO DE INDENTACAO na linha %d\n", linha_atual);
+        }
+        pending_dedents = count - 1;
+        last_indent_action = 2;
+    }
+    /* igual ao nivel atual: last_indent_action fica 0, nada a fazer */
+}
+
+static char *unescape(const char *s) {
+    /* recebe o texto com aspas (ex: "abc\n") e devolve o conteudo sem aspas,
+       com escapes basicos resolvidos */
+    int len = strlen(s);
+    char *out = malloc(len + 1);
+    int oi = 0;
+    for (int i = 1; i < len - 1; i++) { /* pula aspas nas pontas */
+        if (s[i] == '\\' && i + 1 < len - 1) {
+            i++;
+            switch (s[i]) {
+                case 'n': out[oi++] = '\n'; break;
+                case 't': out[oi++] = '\t'; break;
+                case '\\': out[oi++] = '\\'; break;
+                case '"': out[oi++] = '"'; break;
+                case '\'': out[oi++] = '\''; break;
+                default: out[oi++] = s[i]; break;
+            }
+        } else {
+            out[oi++] = s[i];
+        }
+    }
+    out[oi] = '\0';
+    return out;
+}
 %}
 
 %option noyywrap
-%option yylineno 
+%option yylineno
+%x BOL
 
 DIGIT       [0-9]
 LETTER      [a-zA-Z_]
@@ -17,104 +88,157 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 %%
 
-"False"     { printf("PR_FALSO\n"); }
-"None"      { printf("PR_NULO\n"); }
-"True"      { printf("PR_VERDADEIRO\n"); }
-"and"       { printf("PR_E\n"); }
-"as"        { printf("PR_COMO\n"); }
-"assert"    { printf("PR_AFIRMAR\n"); }
-"async"     { printf("PR_ASSINCRONO\n"); }
-"await"     { printf("PR_ESPERAR\n"); }
-"break"     { printf("PR_PARAR\n"); }
-"class"     { printf("PR_CLASSE\n"); }
-"continue"  { printf("PR_CONTINUAR\n"); }
-"def"       { printf("PR_DEF\n"); }
-"del"       { printf("PR_EXCLUIR\n"); }
-"elif"      { printf("PR_SENAO_SE\n"); }
-"else"      { printf("PR_SENAO\n"); }
-"except"    { printf("PR_EXCECAO\n"); }
-"finally"   { printf("PR_FINALMENTE\n"); }
-"for"       { printf("PR_PARA\n"); }
-"from"      { printf("PR_DE\n"); }
-"global"    { printf("PR_GLOBAL\n"); }
-"if"        { printf("PR_SE\n"); }
-"import"    { printf("PR_IMPORTAR\n"); }
-"in"        { printf("PR_EM\n"); }
-"is"        { printf("PR_EH\n"); }
-"lambda"    { printf("PR_LAMBDA\n"); }
-"nonlocal"  { printf("PR_NAO_LOCAL\n"); }
-"not"       { printf("PR_NAO\n"); }
-"or"        { printf("PR_OU\n"); }
-"pass"      { printf("PR_PASSAR\n"); }
-"raise"     { printf("PR_LEVANTAR\n"); }
-"return"    { printf("PR_RETORNAR\n"); }
-"try"       { printf("PR_TENTAR\n"); }
-"while"     { printf("PR_ENQUANTO\n"); }
-"with"      { printf("PR_COM\n"); }
-"yield"     { printf("PR_PRODUZIR\n"); }
+    /* ---------- estado BOL: inicio de linha logica, calcula indentacao ---------- */
+<BOL>[ \t]*"#".*\n     { linha_atual++; /* linha so com comentario: ignora */ }
+<BOL>[ \t]*\n          { linha_atual++; /* linha em branco: ignora */ }
+<BOL><<EOF>>           {
+                            if (indent_top > 0) {
+                                pending_dedents = indent_top - 1;
+                                indent_top = 0;
+                                return DEDENT;
+                            }
+                            yyterminate();
+                        }
+    /* nota: usamos [ \t]+ (1 ou mais) e um fallback <BOL>. separado, porque o flex
+       nao dispara de forma confiavel uma regra que so casa string vazia logo no
+       inicio do escaneamento (caso de uma linha sem nenhuma indentacao). */
+<BOL>[ \t]+            { process_indent(yytext); BEGIN(INITIAL);
+                          if (last_indent_action == 1) return INDENT;
+                          if (last_indent_action == 2) return DEDENT;
+                        }
+<BOL>.                 {
+                            yyless(0); /* devolve o caractere: ele sera lido de novo em INITIAL */
+                            process_indent("");
+                            BEGIN(INITIAL);
+                            if (last_indent_action == 1) return INDENT;
+                            if (last_indent_action == 2) return DEDENT;
+                        }
 
-{ID}        { printf("IDENTIFICADOR(%s)\n", yytext); }
-{FLOAT}     { printf("FLUTUANTE(%s)\n", yytext); }
-{INTEGER}   { printf("INTEIRO(%s)\n", yytext); }
-{STRING}    { printf("TEXTO(%s)\n", yytext); }
+    /* ---------- palavras reservadas ---------- */
+"False"     { return FALSE_; }
+"None"      { return NONE_; }
+"True"      { return TRUE_; }
+"and"       { return AND; }
+"as"        { return AS; }
+"assert"    { return ASSERT; }
+"async"     { return ASYNC; }
+"await"     { return AWAIT; }
+"break"     { return BREAK; }
+"class"     { return CLASS; }
+"continue"  { return CONTINUE; }
+"def"       { return DEF; }
+"del"       { return DEL; }
+"elif"      { return ELIF; }
+"else"      { return ELSE; }
+"except"    { return EXCEPT; }
+"finally"   { return FINALLY; }
+"for"       { return FOR; }
+"from"      { return FROM; }
+"global"    { return GLOBAL; }
+"if"        { return IF; }
+"import"    { return IMPORT; }
+"in"        { return IN; }
+"is"        { return IS; }
+"lambda"    { return LAMBDA; }
+"nonlocal"  { return NONLOCAL; }
+"not"       { return NOT; }
+"or"        { return OR; }
+"pass"      { return PASS; }
+"raise"     { return RAISE; }
+"return"    { return RETURN; }
+"try"       { return TRY; }
+"while"     { return WHILE; }
+"with"      { return WITH; }
+"yield"     { return YIELD; }
 
-"+"         { printf("OP_MAIS\n"); }
-"-"         { printf("OP_MENOS\n"); }
-"**"        { printf("OP_POTENCIA\n"); }
-"*"         { printf("OP_MULTIPLICACAO\n"); }
-"//"        { printf("OP_DIVISAO_INTEIRA\n"); }
-"/"         { printf("OP_DIVISAO\n"); }
-"%"         { printf("OP_MODULO\n"); }
-"@"         { printf("OP_MATRIZ_MULT\n"); }
-"<<"        { printf("OP_DESLOC_ESQUERDA\n"); }
-">>"        { printf("OP_DESLOC_DIREITA\n"); }
-"&"         { printf("OP_E_BIT\n"); }
-"|"         { printf("OP_OU_BIT\n"); }
-"^"         { printf("OP_XOU_BIT\n"); }
-"~"         { printf("OP_NAO_BIT\n"); }
-"<="        { printf("OP_MENOR_IGUAL\n"); }
-">="        { printf("OP_MAIOR_IGUAL\n"); }
-"=="        { printf("OP_IGUAL_IGUAL\n"); }
-"!="        { printf("OP_DIFERENTE\n"); }
-"<"         { printf("OP_MENOR\n"); }
-">"         { printf("OP_MAIOR\n"); }
-"+="        { printf("OP_ATRIBUICAO_MAIS\n"); }
-"-="        { printf("OP_ATRIBUICAO_MENOS\n"); }
-"**="       { printf("OP_ATRIBUICAO_POTENCIA\n"); }
-"*="        { printf("OP_ATRIBUICAO_MULTIPLICACAO\n"); }
-"//="       { printf("OP_ATRIBUICAO_DIVISAO_INTEIRA\n"); }
-"/="        { printf("OP_ATRIBUICAO_DIVISAO\n"); }
-"%="        { printf("OP_ATRIBUICAO_MODULO\n"); }
-"&="        { printf("OP_ATRIBUICAO_E_BIT\n"); }
-"|="        { printf("OP_ATRIBUICAO_OU_BIT\n"); }
-"^="        { printf("OP_ATRIBUICAO_XOU_BIT\n"); }
-"<<="       { printf("OP_ATRIBUICAO_DESLOC_ESQUERDA\n"); }
-">>="       { printf("OP_ATRIBUICAO_DESLOC_DIREITA\n"); }
-"="         { printf("OP_ATRIBUICAO\n"); }
-"("         { printf("PARENTESES_ESQ\n"); }
-")"         { printf("PARENTESES_DIR\n"); }
-"["         { printf("COLCHETE_ESQ\n"); }
-"]"         { printf("COLCHETE_DIR\n"); }
-"{"         { printf("CHAVE_ESQ\n"); }
-"}"         { printf("CHAVE_DIR\n"); }
-","         { printf("VIRGULA\n"); }
-":"         { printf("DOIS_PONTOS\n"); }
-"."         { printf("PONTO\n"); }
-";"         { printf("PONTO_E_VIRGULA\n"); }
-"->"        { printf("SETA\n"); }
+{ID}        { yylval.str = strdup(yytext); return IDENTIFICADOR; }
+{FLOAT}     { yylval.dval = atof(yytext);   return FLUTUANTE; }
+{INTEGER}   { yylval.ival = atol(yytext);   return INTEIRO; }
+{STRING}    { yylval.str = unescape(yytext); return TEXTO; }
 
-"#".*       { }
+"**="       { return OP_ATRIBUICAO_POTENCIA; }
+"//="       { return OP_ATRIBUICAO_DIVISAO_INTEIRA; }
+"<<="       { return OP_ATRIBUICAO_DESLOC_ESQUERDA; }
+">>="       { return OP_ATRIBUICAO_DESLOC_DIREITA; }
+"+="        { return OP_ATRIBUICAO_MAIS; }
+"-="        { return OP_ATRIBUICAO_MENOS; }
+"*="        { return OP_ATRIBUICAO_MULTIPLICACAO; }
+"/="        { return OP_ATRIBUICAO_DIVISAO; }
+"%="        { return OP_ATRIBUICAO_MODULO; }
+"&="        { return OP_ATRIBUICAO_E_BIT; }
+"|="        { return OP_ATRIBUICAO_OU_BIT; }
+"^="        { return OP_ATRIBUICAO_XOU_BIT; }
+"**"        { return OP_POTENCIA; }
+"//"        { return OP_DIVISAO_INTEIRA; }
+"<<"        { return OP_DESLOC_ESQUERDA; }
+">>"        { return OP_DESLOC_DIREITA; }
+"<="        { return OP_MENOR_IGUAL; }
+">="        { return OP_MAIOR_IGUAL; }
+"=="        { return OP_IGUAL_IGUAL; }
+"!="        { return OP_DIFERENTE; }
+"->"        { return SETA; }
 
-[ \t]+      { }
-\n          { linha_atual++; printf("NOVA_LINHA\n"); }
+"+"         { return OP_MAIS; }
+"-"         { return OP_MENOS; }
+"*"         { return OP_MULTIPLICACAO; }
+"/"         { return OP_DIVISAO; }
+"%"         { return OP_MODULO; }
+"@"         { return OP_MATRIZ_MULT; }
+"&"         { return OP_E_BIT; }
+"|"         { return OP_OU_BIT; }
+"^"         { return OP_XOU_BIT; }
+"~"         { return OP_NAO_BIT; }
+"<"         { return OP_MENOR; }
+">"         { return OP_MAIOR; }
+"="         { return OP_ATRIBUICAO; }
 
-.           { printf("ERRO LÉXICO: Caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); }
+"("         { paren_depth++; return PARENTESES_ESQ; }
+")"         { if (paren_depth > 0) paren_depth--; return PARENTESES_DIR; }
+"["         { paren_depth++; return COLCHETE_ESQ; }
+"]"         { if (paren_depth > 0) paren_depth--; return COLCHETE_DIR; }
+"{"         { paren_depth++; return CHAVE_ESQ; }
+"}"         { if (paren_depth > 0) paren_depth--; return CHAVE_DIR; }
+","         { return VIRGULA; }
+":"         { return DOIS_PONTOS; }
+"."         { return PONTO; }
+";"         { return PONTO_E_VIRGULA; }
+
+"#".*       { /* comentario no meio da linha: ignora */ }
+
+[ \t]+      { /* espacos fora do inicio de linha: ignora */ }
+
+\n          {
+                linha_atual++;
+                if (paren_depth > 0) {
+                    /* dentro de ( [ {  quebras de linha nao contam */
+                } else {
+                    BEGIN(BOL);
+                    return NOVA_LINHA;
+                }
+            }
+
+<<EOF>>     {
+                if (indent_top > 0) {
+                    pending_dedents = indent_top - 1;
+                    indent_top = 0;
+                    return DEDENT;
+                }
+                yyterminate();
+            }
+
+.           { fprintf(stderr, "ERRO LEXICO: caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); }
 
 %%
 
-int main(int argc, char **argv) {
-    printf("Iniciando analisador lexico...\n");
-    yylex();
-    printf("\nAnalise concluida com sucesso.\n");
-    return 0;
+int yylex(void) {
+    static int primeira_chamada = 1;
+    if (primeira_chamada) {
+        primeira_chamada = 0;
+        BEGIN(BOL);
+    }
+    if (pending_dedents > 0) {
+        pending_dedents--;
+        return DEDENT;
+    }
+    return flex_scan();
 }
