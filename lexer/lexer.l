@@ -1,21 +1,22 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
+
+int linha_atual = 1;
 %}
 
 %option noyywrap
+%option yylineno 
 
-/* Definições de expressões regulares */
 DIGIT       [0-9]
 LETTER      [a-zA-Z_]
 ID          {LETTER}({LETTER}|{DIGIT})*
 INTEGER     {DIGIT}+
 FLOAT       {DIGIT}+"."{DIGIT}*|"."{DIGIT}+
-STRING      \"[^\"]*\"|\'[^\']*\'
+STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 %%
 
-    /* Palavras relevantes */
 "False"     { printf("PR_FALSO\n"); }
 "None"      { printf("PR_NULO\n"); }
 "True"      { printf("PR_VERDADEIRO\n"); }
@@ -52,13 +53,11 @@ STRING      \"[^\"]*\"|\'[^\']*\'
 "with"      { printf("PR_COM\n"); }
 "yield"     { printf("PR_PRODUZIR\n"); }
 
-    /* Identificadores e Números */
 {ID}        { printf("IDENTIFICADOR(%s)\n", yytext); }
 {FLOAT}     { printf("FLUTUANTE(%s)\n", yytext); }
 {INTEGER}   { printf("INTEIRO(%s)\n", yytext); }
 {STRING}    { printf("TEXTO(%s)\n", yytext); }
 
-    /* Operadores e Pontuação */
 "+"         { printf("OP_MAIS\n"); }
 "-"         { printf("OP_MENOS\n"); }
 "**"        { printf("OP_POTENCIA\n"); }
@@ -104,19 +103,18 @@ STRING      \"[^\"]*\"|\'[^\']*\'
 ";"         { printf("PONTO_E_VIRGULA\n"); }
 "->"        { printf("SETA\n"); }
 
-    /* Comentários Python (iniciam com #) */
-"#".*       { /* Ignora comentários */ }
+"#".*       { }
 
-    /* Espaços em branco, tabulações e quebras de linha */
-[ \t]+   
-\n          { printf("NOVA_LINHA\n"); }
+[ \t]+      { }
+\n          { linha_atual++; printf("NOVA_LINHA\n"); }
 
-    /* Qualquer outro caractere inválido */
-.           { printf("TOKEN_DESCONHECIDO(%s)\n", yytext); }
+.           { printf("ERRO LÉXICO: Caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); }
 
 %%
 
 int main(int argc, char **argv) {
+    printf("Iniciando analisador lexico...\n");
     yylex();
+    printf("\nAnalise concluida com sucesso.\n");
     return 0;
 }
