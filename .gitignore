@@ -1,0 +1,17 @@
+# Build artifacts
+*.o
+/compilador
+/lexer_driver
+
+# Generated Flex/Bison sources
+/lex.yy.c
+/lexer/lex.yy.c
+/parser/parser.tab.c
+/parser/parser.tab.h
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local editor settings
+.vscode/

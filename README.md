@@ -37,11 +37,16 @@ As ferramentas utilizadas são **Flex** (gerador de analisadores léxicos) e **B
 ├── parser/
 │   └── parser.y                 # Analisador sintático e interpretador (Bison)
 ├── src/
-│   └── main.c                   # Ponto de entrada (a ser integrado)
-├── lex.yy.c                     # Código C gerado pelo Flex (não editar manualmente)
-├── compilador                   # Binário pré-compilado (Linux ELF 64-bit)
-└── Makefile                     # Automação da compilação
+│   └── main.c                   # Ponto de entrada do compilador
+├── tests/
+│   ├── lexer_driver.c           # Driver isolado para testar tokens do lexer
+│   ├── test_lexer.py            # Testes automatizados do lexer
+│   └── test_parser.py           # Testes do parser e do interpretador
+└── Makefile                     # Automação da compilação e dos testes
 ```
+
+Os arquivos gerados pelo Bison e pelo Flex ficam em `parser/` e `lexer/` e não
+devem ser editados manualmente.
 
 ---
 
@@ -404,7 +409,11 @@ Suporte completo a `<`, `>`, `<=`, `>=`, `==`, `!=` para números e strings (com
 
 ## Testes do Analisador Léxico
 
-O arquivo `lexer/suite_testes_lexer.py` contém casos de teste para validar o comportamento do lexer. O relatório completo está em `lexer/Relatorio_Testes_Lexer.md`.
+Os testes automatizados são executados por `tests/test_lexer.py`. O arquivo
+`tests/lexer_driver.c` expõe os tokens produzidos pelo lexer sem executar o
+parser. O arquivo `lexer/suite_testes_lexer.py` continua disponível como um
+programa de entrada abrangente, e o relatório completo está em
+`lexer/Relatorio_Testes_Lexer.md`.
 
 ### Cenários Cobertos
 
@@ -429,25 +438,48 @@ O arquivo `lexer/suite_testes_lexer.py` contém casos de teste para validar o co
 
 ---
 
+## Testes do Parser e do Interpretador
+
+`tests/test_parser.py` compila programas temporários com o executável completo
+e verifica a saída produzida. A suíte cobre:
+
+- atribuições e precedência de expressões;
+- condicionais e laços `for` com `range()`;
+- definição, chamada e retorno de funções;
+- mensagens de erro e código de saída diferente de zero para erro sintático.
+
+Para executar todas as suítes:
+
+```bash
+make test
+```
+
+Também é possível executar cada grupo separadamente com `make test-lexer` ou
+`make test-parser`.
+
+---
+
 ## Como Compilar e Executar
 
 > **Pré-requisitos:** `flex`, `bison` e `gcc` instalados (ambiente Linux/WSL recomendado).
 
 ```bash
-# Gerar o código C do lexer
-flex -o lex.yy.c lexer/lexer.l
-
-# Gerar o código C do parser
-bison -d -o y.tab.c parser/parser.y
-
-# Compilar tudo
-gcc -o compilador lex.yy.c y.tab.c -lm
+# Gerar os arquivos e compilar o executável
+make
 
 # Executar um programa Python de exemplo
 ./compilador meu_programa.py
 ```
 
-> O Makefile ainda está em construção. As etapas acima devem ser executadas manualmente por enquanto.
+Para remover os binários e arquivos gerados:
+
+```bash
+make clean
+```
+
+O ponto de entrada está em `src/main.c`; a gramática mantém a construção da
+AST e a função `executar_programa()`, chamada pelo executável após um parse
+bem-sucedido.
 
 ---
 
@@ -501,8 +533,31 @@ for i in range(1, 6):
 | --- | --- |
 | Analisador léxico (`lexer.l`) | Completo ✅ |
 | Testes do lexer | Completo ✅ |
-| Analisador sintático (`parser.y`) | Completo ✅ |
-| Interpretador (embutido no parser) | Funcional ✅ |
-| Ponto de entrada (`main.c`) | Pendente ⏳ |
-| Makefile | Pendente ⏳ |
-| Testes do parser | Em andamento 🔄 |
+| Analisador sintático (`parser.y`) | Funcional para o subconjunto implementado ⚠️ |
+| Interpretador (embutido no parser) | Funcional para o subconjunto implementado ⚠️ |
+| Ponto de entrada (`main.c`) | Completo ✅ |
+| Makefile | Completo ✅ |
+| Testes do parser e interpretador | Completo ✅ |
+| Tratamento de erros léxicos e sintáticos | Parcial ⚠️ |
+| Cobertura de casos negativos e de todos os comandos | Pendente ⏳ |
+
+O projeto ainda não está completo. Os recursos listados em **Recursos ainda
+não implementados** continuam fora do subconjunto suportado, e algumas
+melhorias de robustez ainda são necessárias.
+
+### Próximos passos recomendados
+
+A sequência planejada para continuar o desenvolvimento é:
+
+1. **Concluir o tratamento de erros:** fazer erros léxicos alterarem o código
+    de saída, interromper a análise após caracteres inválidos e melhorar as
+    mensagens com linha, coluna e trecho problemático.
+2. **Ampliar a cobertura de testes:** adicionar casos para `while`, `break`,
+    `continue`, erros léxicos, indentação inconsistente, variáveis inexistentes
+    e funções inexistentes.
+3. **Corrigir vazamentos de memória:** liberar a AST, strings, valores e
+    estruturas de escopo ao final da compilação ou da execução.
+4. **Completar o interpretador:** implementar operadores bitwise e as formas de
+    atribuição composta ainda ausentes.
+5. **Implementar novos recursos da linguagem:** priorizar tuplas, dicionários
+    e slicing, atualizando os testes e esta documentação a cada recurso.
