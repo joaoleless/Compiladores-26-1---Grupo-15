@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "y.tab.h"
+#include "parser.tab.h"
 
 /* Renomeia a função gerada pelo flex para "flex_scan".
    yylex() de verdade é escrito à mão lá embaixo e faz o controle

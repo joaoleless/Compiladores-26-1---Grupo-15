@@ -732,16 +732,10 @@ void yyerror(const char *s) {
     fprintf(stderr, "ERRO DE SINTAXE na linha %d: %s\n", linha_atual, s);
 }
 
-int main(int argc, char **argv) {
-    if (argc > 1) {
-        FILE *f = fopen(argv[1], "r");
-        if (!f) { perror("fopen"); return 1; }
-        extern FILE *yyin;
-        yyin = f;
-    }
-    if (yyparse() == 0 && raiz) {
+void executar_programa(void) {
+    if (raiz) {
         Scope *global = new_scope(NULL);
         exec_block(raiz->a, global);
     }
-    return 0;
 }
+
