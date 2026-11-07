@@ -12,13 +12,13 @@ extern int linha_atual;
 
 typedef enum {
     N_PROGRAM, N_BLOCK,
-    N_INT, N_FLOAT, N_STR, N_BOOL, N_NONE, N_VAR, N_LIST,
+    N_INT, N_FLOAT, N_STR, N_BOOL, N_NONE, N_VAR,
     N_BINOP, N_UNOP, N_BOOLOP, N_COMPARE, N_NOT,
-    N_ASSIGN, N_AUGASSIGN,
-    N_IF, N_WHILE, N_FOR,
-    N_FUNCDEF, N_CALL, N_RETURN,
+    N_ASSIGN,
+    N_IF, N_WHILE,
+    N_CALL,
     N_PASS, N_BREAK, N_CONTINUE,
-    N_INDEX, N_EXPRSTMT
+    N_EXPRSTMT
 } NodeType;
 
 typedef struct Node {
@@ -27,7 +27,7 @@ typedef struct Node {
     double dval;
     char *sval;
     struct Node *a, *b, *c;
-    struct Node *next; /* encadeamento: statements, argumentos, parametros, itens de lista */
+    struct Node *next; /* encadeamento: statements e argumentos */
 } Node;
 
 static Node *mknode(NodeType t) {
@@ -46,15 +46,13 @@ static Node *append_list(Node *list, Node *item) {
 
 /* ===================== Valores em tempo de execucao ===================== */
 
-typedef enum { V_INT, V_FLOAT, V_STR, V_BOOL, V_NONE, V_LIST } VType;
+typedef enum { V_INT, V_FLOAT, V_STR, V_BOOL, V_NONE } VType;
 
 typedef struct Value {
     VType type;
     long ival;
     double dval;
     char *sval;
-    struct Value **items;
-    int nitems;
 } Value;
 
 static Value *new_int(long v)   { Value *x = calloc(1,sizeof(Value)); x->type=V_INT; x->ival=v; return x; }
@@ -62,7 +60,6 @@ static Value *new_float(double v){ Value *x = calloc(1,sizeof(Value)); x->type=V
 static Value *new_str(const char *s){ Value *x = calloc(1,sizeof(Value)); x->type=V_STR; x->sval=strdup(s); return x; }
 static Value *new_bool(int b)   { Value *x = calloc(1,sizeof(Value)); x->type=V_BOOL; x->ival=b?1:0; return x; }
 static Value *new_none(void)    { Value *x = calloc(1,sizeof(Value)); x->type=V_NONE; return x; }
-static Value *new_list(void)    { Value *x = calloc(1,sizeof(Value)); x->type=V_LIST; return x; }
 
 static double as_double(Value *v) {
     switch (v->type) {
@@ -80,7 +77,6 @@ static int truthy(Value *v) {
         case V_BOOL: return v->ival != 0;
         case V_STR: return v->sval && v->sval[0] != '\0';
         case V_NONE: return 0;
-        case V_LIST: return v->nitems > 0;
     }
     return 0;
 }
@@ -92,14 +88,6 @@ static void print_value(Value *v) {
         case V_STR: printf("%s", v->sval); break;
         case V_BOOL: printf("%s", v->ival ? "True" : "False"); break;
         case V_NONE: printf("None"); break;
-        case V_LIST:
-            printf("[");
-            for (int i = 0; i < v->nitems; i++) {
-                if (i) printf(", ");
-                print_value(v->items[i]);
-            }
-            printf("]");
-            break;
     }
 }
 
@@ -113,20 +101,15 @@ typedef struct VarEntry {
 
 typedef struct Scope {
     VarEntry *vars;
-    struct Scope *parent;
 } Scope;
 
-static Scope *new_scope(Scope *parent) {
-    Scope *s = calloc(1, sizeof(Scope));
-    s->parent = parent;
-    return s;
+static Scope *new_scope(void) {
+    return calloc(1, sizeof(Scope));
 }
 
 static Value *scope_get(Scope *s, const char *name) {
-    for (Scope *cur = s; cur; cur = cur->parent) {
-        for (VarEntry *e = cur->vars; e; e = e->next)
-            if (strcmp(e->name, name) == 0) return e->val;
-    }
+    for (VarEntry *e = s->vars; e; e = e->next)
+        if (strcmp(e->name, name) == 0) return e->val;
     fprintf(stderr, "ERRO: variavel '%s' nao definida\n", name);
     return new_none();
 }
@@ -174,80 +157,23 @@ Node *raiz = NULL;
 %token NOVA_LINHA INDENT DEDENT
 
 %type <node> program stmts stmt simple_stmt compound_stmt block
-%type <node> expr_stmt pass_stmt break_stmt continue_stmt return_stmt
-%type <node> if_stmt elif_chain while_stmt for_stmt funcdef_stmt
-%type <node> paramlist_opt paramlist arglist_opt arglist
+%type <node> expr_stmt pass_stmt break_stmt continue_stmt
+%type <node> if_stmt while_stmt arglist_opt arglist
 %type <node> expr or_test and_test not_test comparison arith_expr term factor power atom_trailer atom
-%type <ival> augassign_op compare_op
+%type <ival> compare_op
 
 
 %{
-/* ===================== Funcoes definidas pelo usuario ===================== */
-
-typedef struct FuncEntry {
-    char *name;
-    Node *def; /* N_FUNCDEF */
-    struct FuncEntry *next;
-} FuncEntry;
-
-static FuncEntry *funcs = NULL;
-
-static void register_func(const char *name, Node *def) {
-    FuncEntry *f = calloc(1, sizeof(FuncEntry));
-    f->name = strdup(name);
-    f->def = def;
-    f->next = funcs;
-    funcs = f;
-}
-
-static Node *find_func(const char *name) {
-    for (FuncEntry *f = funcs; f; f = f->next)
-        if (strcmp(f->name, name) == 0) return f->def;
-    return NULL;
-}
-
 /* ===================== Sinalizacao de break/continue/return ===================== */
 
-typedef enum { SIG_NONE, SIG_BREAK, SIG_CONTINUE, SIG_RETURN } Signal;
+typedef enum { SIG_NONE, SIG_BREAK, SIG_CONTINUE } Signal;
 static Signal signal_flag = SIG_NONE;
-static Value *return_value = NULL;
 
 /* ===================== Interpretador ===================== */
 
 static Value *eval_expr(Node *n, Scope *sc);
 static void exec_stmt(Node *n, Scope *sc);
 static void exec_block(Node *block, Scope *sc);
-
-static Value *call_range(Node *args, Scope *sc) {
-    long start = 0, stop = 0, step = 1;
-    int nargs = 0;
-    long vals[3];
-    for (Node *a = args; a; a = a->next) {
-        Value *v = eval_expr(a, sc);
-        vals[nargs++] = (long) as_double(v);
-        if (nargs >= 3) break;
-    }
-    if (nargs == 1) { stop = vals[0]; }
-    else if (nargs == 2) { start = vals[0]; stop = vals[1]; }
-    else if (nargs == 3) { start = vals[0]; stop = vals[1]; step = vals[2]; }
-
-    Value *lst = new_list();
-    int cap = 16;
-    lst->items = malloc(sizeof(Value*) * cap);
-    lst->nitems = 0;
-    if (step > 0) {
-        for (long i = start; i < stop; i += step) {
-            if (lst->nitems >= cap) { cap *= 2; lst->items = realloc(lst->items, sizeof(Value*) * cap); }
-            lst->items[lst->nitems++] = new_int(i);
-        }
-    } else if (step < 0) {
-        for (long i = start; i > stop; i += step) {
-            if (lst->nitems >= cap) { cap *= 2; lst->items = realloc(lst->items, sizeof(Value*) * cap); }
-            lst->items[lst->nitems++] = new_int(i);
-        }
-    }
-    return lst;
-}
 
 static Value *call_function(const char *name, Node *args, Scope *sc) {
     if (strcmp(name, "print") == 0) {
@@ -259,15 +185,6 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         }
         printf("\n");
         return new_none();
-    }
-    if (strcmp(name, "range") == 0) {
-        return call_range(args, sc);
-    }
-    if (strcmp(name, "len") == 0) {
-        Value *v = eval_expr(args, sc);
-        if (v->type == V_LIST) return new_int(v->nitems);
-        if (v->type == V_STR) return new_int((long)strlen(v->sval));
-        return new_int(0);
     }
     if (strcmp(name, "int") == 0) {
         Value *v = eval_expr(args, sc);
@@ -286,31 +203,10 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
             case V_BOOL: return new_str(v->ival ? "True" : "False");
             case V_NONE: return new_str("None");
             case V_STR: return new_str(v->sval);
-            default: return new_str("[list]");
         }
     }
 
-    Node *def = find_func(name);
-    if (!def) {
-        fprintf(stderr, "ERRO: funcao '%s' nao definida\n", name);
-        return new_none();
-    }
-
-    Scope *fscope = new_scope(NULL); /* escopo simples: apenas locais/parametros */
-    Node *param = def->a;
-    Node *arg = args;
-    while (param && arg) {
-        scope_set(fscope, param->sval, eval_expr(arg, sc));
-        param = param->next;
-        arg = arg->next;
-    }
-
-    return_value = new_none();
-    exec_block(def->b, fscope);
-    if (signal_flag == SIG_RETURN) {
-        signal_flag = SIG_NONE;
-        return return_value;
-    }
+    fprintf(stderr, "ERRO: funcao '%s' nao definida\n", name);
     return new_none();
 }
 
@@ -323,35 +219,6 @@ static Value *eval_expr(Node *n, Scope *sc) {
         case N_BOOL: return new_bool(n->ival);
         case N_NONE: return new_none();
         case N_VAR: return scope_get(sc, n->sval);
-        case N_LIST: {
-            Value *lst = new_list();
-            int cap = 8;
-            lst->items = malloc(sizeof(Value*) * cap);
-            lst->nitems = 0;
-            for (Node *e = n->a; e; e = e->next) {
-                if (lst->nitems >= cap) { cap *= 2; lst->items = realloc(lst->items, sizeof(Value*)*cap); }
-                lst->items[lst->nitems++] = eval_expr(e, sc);
-            }
-            return lst;
-        }
-        case N_INDEX: {
-            Value *base = eval_expr(n->a, sc);
-            Value *idx = eval_expr(n->b, sc);
-            long i = (long) as_double(idx);
-            if (base->type == V_LIST) {
-                if (i < 0) i += base->nitems;
-                if (i < 0 || i >= base->nitems) { fprintf(stderr, "ERRO: indice fora do intervalo\n"); return new_none(); }
-                return base->items[i];
-            }
-            if (base->type == V_STR) {
-                int len = strlen(base->sval);
-                if (i < 0) i += len;
-                if (i < 0 || i >= len) { fprintf(stderr, "ERRO: indice fora do intervalo\n"); return new_none(); }
-                char buf[2] = { base->sval[i], '\0' };
-                return new_str(buf);
-            }
-            return new_none();
-        }
         case N_CALL:
             return call_function(n->sval, n->a, sc);
         case N_NOT:
@@ -449,30 +316,6 @@ static void exec_stmt(Node *n, Scope *sc) {
         case N_ASSIGN:
             scope_set(sc, n->sval, eval_expr(n->a, sc));
             break;
-        case N_AUGASSIGN: {
-            Value *cur = scope_get(sc, n->sval);
-            Value *rhs = eval_expr(n->a, sc);
-            int floaty = is_floaty(cur) || is_floaty(rhs);
-            double x = as_double(cur), y = as_double(rhs);
-            Value *res;
-            switch (n->ival) {
-                case OP_ATRIBUICAO_MAIS:
-                    if (cur->type == V_STR) {
-                        char buf[512];
-                        snprintf(buf, sizeof(buf), "%s%s", cur->sval, rhs->sval ? rhs->sval : "");
-                        res = new_str(buf);
-                    } else res = floaty ? new_float(x+y) : new_int((long)x+(long)y);
-                    break;
-                case OP_ATRIBUICAO_MENOS: res = floaty ? new_float(x-y) : new_int((long)x-(long)y); break;
-                case OP_ATRIBUICAO_MULTIPLICACAO: res = floaty ? new_float(x*y) : new_int((long)x*(long)y); break;
-                case OP_ATRIBUICAO_DIVISAO: res = new_float(x/y); break;
-                case OP_ATRIBUICAO_DIVISAO_INTEIRA: res = new_int((long)floor(x/y)); break;
-                case OP_ATRIBUICAO_MODULO: res = floaty ? new_float(fmod(x,y)) : new_int((long)x%(long)y); break;
-                default: res = cur; break;
-            }
-            scope_set(sc, n->sval, res);
-            break;
-        }
         case N_IF:
             if (truthy(eval_expr(n->a, sc))) {
                 exec_block(n->b, sc);
@@ -486,28 +329,7 @@ static void exec_stmt(Node *n, Scope *sc) {
                 exec_block(n->b, sc);
                 if (signal_flag == SIG_BREAK) { signal_flag = SIG_NONE; break; }
                 if (signal_flag == SIG_CONTINUE) { signal_flag = SIG_NONE; continue; }
-                if (signal_flag == SIG_RETURN) return;
             }
-            break;
-        case N_FOR: {
-            Value *iterable = eval_expr(n->a, sc);
-            if (iterable->type == V_LIST) {
-                for (int i = 0; i < iterable->nitems; i++) {
-                    scope_set(sc, n->sval, iterable->items[i]);
-                    exec_block(n->b, sc);
-                    if (signal_flag == SIG_BREAK) { signal_flag = SIG_NONE; break; }
-                    if (signal_flag == SIG_CONTINUE) { signal_flag = SIG_NONE; continue; }
-                    if (signal_flag == SIG_RETURN) return;
-                }
-            }
-            break;
-        }
-        case N_FUNCDEF:
-            register_func(n->sval, n);
-            break;
-        case N_RETURN:
-            return_value = n->a ? eval_expr(n->a, sc) : new_none();
-            signal_flag = SIG_RETURN;
             break;
         case N_BREAK:
             signal_flag = SIG_BREAK;
@@ -545,89 +367,38 @@ simple_stmt:
     | pass_stmt { $$ = $1; }
     | break_stmt { $$ = $1; }
     | continue_stmt { $$ = $1; }
-    | return_stmt { $$ = $1; }
     ;
 
 expr_stmt:
       IDENTIFICADOR OP_ATRIBUICAO expr {
           $$ = mknode(N_ASSIGN); $$->sval = $1; $$->a = $3;
       }
-    | IDENTIFICADOR augassign_op expr {
-          $$ = mknode(N_AUGASSIGN); $$->sval = $1; $$->ival = $2; $$->a = $3;
-      }
     | expr {
           $$ = mknode(N_EXPRSTMT); $$->a = $1;
       }
-    ;
-
-augassign_op:
-      OP_ATRIBUICAO_MAIS { $$ = OP_ATRIBUICAO_MAIS; }
-    | OP_ATRIBUICAO_MENOS { $$ = OP_ATRIBUICAO_MENOS; }
-    | OP_ATRIBUICAO_MULTIPLICACAO { $$ = OP_ATRIBUICAO_MULTIPLICACAO; }
-    | OP_ATRIBUICAO_DIVISAO { $$ = OP_ATRIBUICAO_DIVISAO; }
-    | OP_ATRIBUICAO_DIVISAO_INTEIRA { $$ = OP_ATRIBUICAO_DIVISAO_INTEIRA; }
-    | OP_ATRIBUICAO_MODULO { $$ = OP_ATRIBUICAO_MODULO; }
     ;
 
 pass_stmt: PASS { $$ = mknode(N_PASS); } ;
 break_stmt: BREAK { $$ = mknode(N_BREAK); } ;
 continue_stmt: CONTINUE { $$ = mknode(N_CONTINUE); } ;
 
-return_stmt:
-      RETURN expr { $$ = mknode(N_RETURN); $$->a = $2; }
-    | RETURN { $$ = mknode(N_RETURN); }
-    ;
-
 compound_stmt:
       if_stmt { $$ = $1; }
     | while_stmt { $$ = $1; }
-    | for_stmt { $$ = $1; }
-    | funcdef_stmt { $$ = $1; }
     ;
 
 if_stmt:
-      IF expr DOIS_PONTOS block elif_chain {
-          $$ = mknode(N_IF); $$->a = $2; $$->b = $4; $$->c = $5;
+      IF expr DOIS_PONTOS block {
+          $$ = mknode(N_IF); $$->a = $2; $$->b = $4;
       }
-    ;
-
-elif_chain:
-      ELIF expr DOIS_PONTOS block elif_chain {
-          $$ = mknode(N_IF); $$->a = $2; $$->b = $4; $$->c = $5;
+    | IF expr DOIS_PONTOS block ELSE DOIS_PONTOS block {
+          $$ = mknode(N_IF); $$->a = $2; $$->b = $4; $$->c = $7;
       }
-    | ELSE DOIS_PONTOS block { $$ = $3; }
-    | /* vazio */ { $$ = NULL; }
     ;
 
 while_stmt:
       WHILE expr DOIS_PONTOS block {
           $$ = mknode(N_WHILE); $$->a = $2; $$->b = $4;
-      }
-    ;
-
-for_stmt:
-      FOR IDENTIFICADOR IN expr DOIS_PONTOS block {
-          $$ = mknode(N_FOR); $$->sval = $2; $$->a = $4; $$->b = $6;
-      }
-    ;
-
-funcdef_stmt:
-      DEF IDENTIFICADOR PARENTESES_ESQ paramlist_opt PARENTESES_DIR DOIS_PONTOS block {
-          $$ = mknode(N_FUNCDEF); $$->sval = $2; $$->a = $4; $$->b = $7;
-      }
-    ;
-
-paramlist_opt:
-      /* vazio */ { $$ = NULL; }
-    | paramlist { $$ = $1; }
-    ;
-
-paramlist:
-      IDENTIFICADOR {
-          Node *v = mknode(N_VAR); v->sval = $1; $$ = v;
-      }
-    | paramlist VIRGULA IDENTIFICADOR {
-          Node *v = mknode(N_VAR); v->sval = $3; $$ = append_list($1, v);
       }
     ;
 
@@ -698,9 +469,6 @@ atom_trailer:
       IDENTIFICADOR PARENTESES_ESQ arglist_opt PARENTESES_DIR {
           $$ = mknode(N_CALL); $$->sval = $1; $$->a = $3;
       }
-    | atom_trailer COLCHETE_ESQ expr COLCHETE_DIR {
-          $$ = mknode(N_INDEX); $$->a = $1; $$->b = $3;
-      }
     | atom { $$ = $1; }
     ;
 
@@ -713,7 +481,6 @@ atom:
     | NONE_ { $$ = mknode(N_NONE); }
     | IDENTIFICADOR { $$ = mknode(N_VAR); $$->sval = $1; }
     | PARENTESES_ESQ expr PARENTESES_DIR { $$ = $2; }
-    | COLCHETE_ESQ arglist_opt COLCHETE_DIR { $$ = mknode(N_LIST); $$->a = $2; }
     ;
 
 arglist_opt:
@@ -734,7 +501,7 @@ void yyerror(const char *s) {
 
 void executar_programa(void) {
     if (raiz) {
-        Scope *global = new_scope(NULL);
+        Scope *global = new_scope();
         exec_block(raiz->a, global);
     }
 }

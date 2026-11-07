@@ -37,8 +37,10 @@ class ParserInterpreterTests(unittest.TestCase):
     def test_conditionals_and_loops(self):
         self.assert_program_output(
             "total = 0\n"
-            "for value in range(1, 4):\n"
-            "    total += value\n"
+            "value = 1\n"
+            "while value < 4:\n"
+            "    total = total + value\n"
+            "    value = value + 1\n"
             "if total == 6:\n"
             "    print(total)\n"
             "else:\n"
@@ -46,13 +48,23 @@ class ParserInterpreterTests(unittest.TestCase):
             "6\n",
         )
 
-    def test_functions_and_return(self):
+    def test_float_arithmetic(self):
         self.assert_program_output(
-            "def square(value):\n"
-            "    return value * value\n"
-            "print(square(5))\n",
-            "25\n",
+            "print(1.5 + 2)\nprint(7 / 2)\n",
+            "3.5\n3.5\n",
         )
+
+    def test_removed_constructs_are_syntax_errors(self):
+        for source in (
+            "def f():\n    return 1\n",
+            "for i in range(3):\n    print(i)\n",
+            "x = [1, 2]\n",
+            "x = 1\nx += 1\n",
+            "if True:\n    print(1)\nelif False:\n    print(2)\n",
+        ):
+            result = self.run_program(source)
+            self.assertNotEqual(result.returncode, 0, source)
+            self.assertIn("ERRO DE SINTAXE", result.stderr, source)
 
     def test_syntax_error_returns_nonzero(self):
         result = self.run_program("if True\n    print(1)\n")
