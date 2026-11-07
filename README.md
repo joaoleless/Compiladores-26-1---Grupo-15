@@ -193,13 +193,13 @@ A função auxiliar `unescape()` em C processa o conteúdo das strings, removend
 
 ### Tratamento de Erros Léxicos
 
-Caracteres não reconhecidos geram uma mensagem de erro com o número da linha, sem interromper a análise:
+Caracteres não reconhecidos geram uma mensagem de erro com o número da linha. A análise prossegue (para reportar todos os erros), mas o contador `erros_lexicos` é incrementado e o executável termina com código de saída `1` **sem executar o programa**:
 
 ```c
 . { fprintf(stderr, "ERRO LEXICO: caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); }
 ```
 
-Erros de indentação inconsistente (onde o nível de recuo não corresponde a nenhum nível anterior) também são reportados via `stderr`.
+Erros de indentação inconsistente (onde o nível de recuo não corresponde a nenhum nível anterior) também são reportados via `stderr` e contam em `erros_lexicos`.
 
 ---
 
@@ -315,7 +315,7 @@ typedef struct Value {
 
 **Impressão de valores (`print_value`):**
 - Inteiros: formato `%ld`
-- Reais: formato `%g` (sem zeros à direita desnecessários)
+- Reais: menor representação que preserva o valor, sempre com ponto decimal, como no Python (`2.0`, `0.1`, `1e+20`)
 - Booleanos: `True` ou `False`
 - `None`: `None`
 
@@ -408,11 +408,23 @@ programa de entrada abrangente, e o relatório completo está em
 `tests/test_parser.py` compila programas temporários com o executável completo
 e verifica a saída produzida. A suíte cobre:
 
-- atribuições e precedência de expressões;
-- condicionais (`if/else`) e laços `while`;
-- aritmética com ponto flutuante;
-- construções fora do subconjunto (`def`, `for`, listas, `+=`, `elif`) gerando erro sintático;
-- mensagens de erro e código de saída diferente de zero para erro sintático.
+- precedência, associatividade e parênteses; `**`, `/`, `//`, `%` e promoção `int`/`float`;
+- operadores unários, relacionais e lógicos (retorno de operandos e curto-circuito) e veracidade (`truthy`);
+- strings (concatenação, comparação, escapes), `print` com vários argumentos e conversões `int`/`float`/`str`;
+- variáveis (reatribuição, mudança de tipo) e erros de execução para variável/função inexistente;
+- `if/else` (aninhado e em linha única), `while`, `break`, `continue`, `pass` e laços aninhados;
+- comentários, linhas em branco, expressões multi-linha entre parênteses e programa vazio;
+- construções fora do subconjunto (`def`, `for`, listas, `+=`, `elif`) e outros erros sintáticos, com código de saída diferente de zero e sem saída parcial;
+- erros léxicos e de indentação (código de saída `1` e nenhuma execução);
+- saída de `float` idêntica à do Python (`2.0`, `0.30000000000000004`, `1e+20`);
+- erros do executável (arquivo inexistente e excesso de argumentos).
+
+`tests/test_lexer.py` usa o driver `tests/lexer_driver.c`, que imprime o nome de
+cada token, e cobre: palavras reservadas (todas), identificadores, literais
+numéricos e de texto, operadores (aritméticos, bitwise, compostos e *longest
+match*), delimitadores, comentários, `INDENT`/`DEDENT` (múltiplos, EOF, tabs e
+linhas em branco), supressão de `NOVA_LINHA` entre `()`, `[]` e `{}`, e erros
+léxicos e de indentação reportados no `stderr`.
 
 Para executar todas as suítes:
 
@@ -503,8 +515,8 @@ else:
 | Ponto de entrada (`main.c`) | Completo ✅ |
 | Makefile | Completo ✅ |
 | Testes do parser e interpretador | Completo ✅ |
-| Tratamento de erros léxicos e sintáticos | Parcial ⚠️ |
-| Cobertura de casos negativos e de todos os comandos | Pendente ⏳ |
+| Tratamento de erros léxicos e sintáticos | Completo ✅ (mensagens com linha; sem coluna) |
+| Cobertura de casos negativos e de todos os comandos | Completo ✅ |
 
 O projeto ainda não está completo. Os recursos listados em **Recursos ainda
 não implementados** continuam fora do subconjunto suportado, e algumas
@@ -514,15 +526,10 @@ melhorias de robustez ainda são necessárias.
 
 A sequência planejada para continuar o desenvolvimento é:
 
-1. **Concluir o tratamento de erros:** fazer erros léxicos alterarem o código
-    de saída, interromper a análise após caracteres inválidos e melhorar as
-    mensagens com linha, coluna e trecho problemático.
-2. **Ampliar a cobertura de testes:** adicionar casos para `while`, `break`,
-    `continue`, erros léxicos, indentação inconsistente, variáveis inexistentes
-    e funções inexistentes.
-3. **Corrigir vazamentos de memória:** liberar a AST, strings, valores e
+1. **Melhorar as mensagens de erro:** incluir coluna e trecho problemático.
+2. **Corrigir vazamentos de memória:** liberar a AST, strings, valores e
     estruturas de escopo ao final da compilação ou da execução.
-4. **Congelar o escopo reduzido:** o subconjunto atual (sem funções do
+3. **Congelar o escopo reduzido:** o subconjunto atual (sem funções do
     usuário, listas, `for`, `elif` e atribuição composta) é o alvo da entrega;
     novos recursos só devem entrar se o enunciado exigir, atualizando os
     testes e esta documentação.

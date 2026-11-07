@@ -2,6 +2,7 @@
 
 int yyparse(void);
 void executar_programa(void);
+extern int erros_lexicos;
 extern FILE *yyin;
 
 int main(int argc, char **argv) {
@@ -19,6 +20,7 @@ int main(int argc, char **argv) {
 	}
 
 	if (yyparse() != 0) return 1;
+	if (erros_lexicos > 0) return 1;
 	executar_programa();
 	return 0;
 }

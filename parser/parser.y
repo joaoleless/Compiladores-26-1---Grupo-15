@@ -81,10 +81,23 @@ static int truthy(Value *v) {
     return 0;
 }
 
+/* Formata um double como o Python: menor representacao que preserva o valor,
+   sempre com ponto decimal (ex.: 2.0, 0.1, 1e+16). */
+static void format_float(double d, char *buf, size_t size) {
+    for (int prec = 1; prec <= 17; prec++) {
+        snprintf(buf, size, "%.*g", prec, d);
+        if (strtod(buf, NULL) == d) break;
+    }
+    if (!strpbrk(buf, ".einEIN")) {
+        size_t n = strlen(buf);
+        if (n + 2 < size) { buf[n] = '.'; buf[n + 1] = '0'; buf[n + 2] = '\0'; }
+    }
+}
+
 static void print_value(Value *v) {
     switch (v->type) {
         case V_INT: printf("%ld", v->ival); break;
-        case V_FLOAT: printf("%g", v->dval); break;
+        case V_FLOAT: { char buf[64]; format_float(v->dval, buf, sizeof(buf)); printf("%s", buf); break; }
         case V_STR: printf("%s", v->sval); break;
         case V_BOOL: printf("%s", v->ival ? "True" : "False"); break;
         case V_NONE: printf("None"); break;
@@ -199,7 +212,7 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         char buf[128];
         switch (v->type) {
             case V_INT: snprintf(buf, sizeof(buf), "%ld", v->ival); return new_str(buf);
-            case V_FLOAT: snprintf(buf, sizeof(buf), "%g", v->dval); return new_str(buf);
+            case V_FLOAT: format_float(v->dval, buf, sizeof(buf)); return new_str(buf);
             case V_BOOL: return new_str(v->ival ? "True" : "False");
             case V_NONE: return new_str("None");
             case V_STR: return new_str(v->sval);
@@ -350,6 +363,7 @@ static void exec_stmt(Node *n, Scope *sc) {
 
 program:
       stmts { raiz = mknode(N_PROGRAM); raiz->a = $1; }
+    | /* programa vazio */ { raiz = mknode(N_PROGRAM); }
     ;
 
 stmts:

@@ -10,6 +10,7 @@
 #define YY_DECL int flex_scan(void)
 
 int linha_atual = 1;
+int erros_lexicos = 0; /* erros lexicos/de indentacao encontrados */
 
 /* --- controle de indentação --- */
 #define MAX_INDENT 128
@@ -42,6 +43,7 @@ static void process_indent(const char *espacos) {
         }
         if (indent != indent_stack[indent_top]) {
             fprintf(stderr, "ERRO DE INDENTACAO na linha %d\n", linha_atual);
+            erros_lexicos++;
         }
         pending_dedents = count - 1;
         last_indent_action = 2;
@@ -226,7 +228,7 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
                 yyterminate();
             }
 
-.           { fprintf(stderr, "ERRO LEXICO: caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); }
+.           { fprintf(stderr, "ERRO LEXICO: caractere desconhecido '%s' na linha %d\n", yytext, linha_atual); erros_lexicos++; }
 
 %%
 
