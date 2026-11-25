@@ -1,4 +1,5 @@
 %{
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,11 +56,11 @@ typedef struct Value {
     char *sval;
 } Value;
 
-static Value *new_int(long v)   { Value *x = calloc(1,sizeof(Value)); x->type=V_INT; x->ival=v; return x; }
+static Value *new_int(long v)    { Value *x = calloc(1,sizeof(Value)); x->type=V_INT; x->ival=v; return x; }
 static Value *new_float(double v){ Value *x = calloc(1,sizeof(Value)); x->type=V_FLOAT; x->dval=v; return x; }
 static Value *new_str(const char *s){ Value *x = calloc(1,sizeof(Value)); x->type=V_STR; x->sval=strdup(s); return x; }
-static Value *new_bool(int b)   { Value *x = calloc(1,sizeof(Value)); x->type=V_BOOL; x->ival=b?1:0; return x; }
-static Value *new_none(void)    { Value *x = calloc(1,sizeof(Value)); x->type=V_NONE; return x; }
+static Value *new_bool(int b)    { Value *x = calloc(1,sizeof(Value)); x->type=V_BOOL; x->ival=b?1:0; return x; }
+static Value *new_none(void)     { Value *x = calloc(1,sizeof(Value)); x->type=V_NONE; return x; }
 
 static double as_double(Value *v) {
     switch (v->type) {
@@ -69,7 +70,9 @@ static double as_double(Value *v) {
         default: return 0.0;
     }
 }
+
 static int is_floaty(Value *v) { return v->type == V_FLOAT; }
+
 static int truthy(Value *v) {
     switch (v->type) {
         case V_INT: return v->ival != 0;
@@ -175,9 +178,157 @@ Node *raiz = NULL;
 %type <node> expr or_test and_test not_test comparison arith_expr term factor power atom_trailer atom
 %type <ival> compare_op
 
+%%
 
-%{
-/* ===================== Sinalizacao de break/continue/return ===================== */
+program:
+      stmts { raiz = mknode(N_PROGRAM); raiz->a = $1; }
+    | /* programa vazio */ { raiz = mknode(N_PROGRAM); }
+    ;
+
+stmts:
+      stmts stmt { $$ = append_list($1, $2); }
+    | stmt { $$ = $1; }
+    ;
+
+stmt:
+      simple_stmt NOVA_LINHA { $$ = $1; }
+    | compound_stmt { $$ = $1; }
+    ;
+
+simple_stmt:
+      expr_stmt { $$ = $1; }
+    | pass_stmt { $$ = $1; }
+    | break_stmt { $$ = $1; }
+    | continue_stmt { $$ = $1; }
+    ;
+
+expr_stmt:
+      IDENTIFICADOR OP_ATRIBUICAO expr {
+          $$ = mknode(N_ASSIGN); $$->sval = $1; $$->a = $3;
+      }
+    | expr {
+          $$ = mknode(N_EXPRSTMT); $$->a = $1;
+      }
+    ;
+
+pass_stmt: PASS { $$ = mknode(N_PASS); } ;
+break_stmt: BREAK { $$ = mknode(N_BREAK); } ;
+continue_stmt: CONTINUE { $$ = mknode(N_CONTINUE); } ;
+
+compound_stmt:
+      if_stmt { $$ = $1; }
+    | while_stmt { $$ = $1; }
+    ;
+
+if_stmt:
+      IF expr DOIS_PONTOS block {
+          $$ = mknode(N_IF); $$->a = $2; $$->b = $4;
+      }
+    | IF expr DOIS_PONTOS block ELSE DOIS_PONTOS block {
+          $$ = mknode(N_IF); $$->a = $2; $$->b = $4; $$->c = $7;
+      }
+    ;
+
+while_stmt:
+      WHILE expr DOIS_PONTOS block {
+          $$ = mknode(N_WHILE); $$->a = $2; $$->b = $4;
+      }
+    ;
+
+block:
+      NOVA_LINHA INDENT stmts DEDENT { $$ = $3; }
+    | simple_stmt NOVA_LINHA { $$ = $1; }
+    ;
+
+/* ---------- expressoes (precedencia crescente) ---------- */
+
+expr: or_test { $$ = $1; } ;
+
+or_test:
+      or_test OR and_test { $$ = mknode(N_BOOLOP); $$->ival = OR; $$->a = $1; $$->b = $3; }
+    | and_test { $$ = $1; }
+    ;
+
+and_test:
+      and_test AND not_test { $$ = mknode(N_BOOLOP); $$->ival = AND; $$->a = $1; $$->b = $3; }
+    | not_test { $$ = $1; }
+    ;
+
+not_test:
+      NOT not_test { $$ = mknode(N_NOT); $$->a = $2; }
+    | comparison { $$ = $1; }
+    ;
+
+comparison:
+      arith_expr compare_op arith_expr { $$ = mknode(N_COMPARE); $$->ival = $2; $$->a = $1; $$->b = $3; }
+    | arith_expr { $$ = $1; }
+    ;
+
+compare_op:
+      OP_MENOR { $$ = OP_MENOR; }
+    | OP_MAIOR { $$ = OP_MAIOR; }
+    | OP_MENOR_IGUAL { $$ = OP_MENOR_IGUAL; }
+    | OP_MAIOR_IGUAL { $$ = OP_MAIOR_IGUAL; }
+    | OP_IGUAL_IGUAL { $$ = OP_IGUAL_IGUAL; }
+    | OP_DIFERENTE { $$ = OP_DIFERENTE; }
+    ;
+
+arith_expr:
+      arith_expr OP_MAIS term { $$ = mknode(N_BINOP); $$->ival = OP_MAIS; $$->a = $1; $$->b = $3; }
+    | arith_expr OP_MENOS term { $$ = mknode(N_BINOP); $$->ival = OP_MENOS; $$->a = $1; $$->b = $3; }
+    | term { $$ = $1; }
+    ;
+
+term:
+      term OP_MULTIPLICACAO factor { $$ = mknode(N_BINOP); $$->ival = OP_MULTIPLICACAO; $$->a = $1; $$->b = $3; }
+    | term OP_DIVISAO factor { $$ = mknode(N_BINOP); $$->ival = OP_DIVISAO; $$->a = $1; $$->b = $3; }
+    | term OP_DIVISAO_INTEIRA factor { $$ = mknode(N_BINOP); $$->ival = OP_DIVISAO_INTEIRA; $$->a = $1; $$->b = $3; }
+    | term OP_MODULO factor { $$ = mknode(N_BINOP); $$->ival = OP_MODULO; $$->a = $1; $$->b = $3; }
+    | factor { $$ = $1; }
+    ;
+
+factor:
+      OP_MENOS factor { $$ = mknode(N_UNOP); $$->ival = OP_MENOS; $$->a = $2; }
+    | OP_MAIS factor { $$ = mknode(N_UNOP); $$->ival = OP_MAIS; $$->a = $2; }
+    | power { $$ = $1; }
+    ;
+
+power:
+      atom_trailer OP_POTENCIA factor { $$ = mknode(N_BINOP); $$->ival = OP_POTENCIA; $$->a = $1; $$->b = $3; }
+    | atom_trailer { $$ = $1; }
+    ;
+
+atom_trailer:
+      IDENTIFICADOR PARENTESES_ESQ arglist_opt PARENTESES_DIR {
+          $$ = mknode(N_CALL); $$->sval = $1; $$->a = $3;
+      }
+    | atom { $$ = $1; }
+    ;
+
+atom:
+      INTEIRO { $$ = mknode(N_INT); $$->ival = $1; }
+    | FLUTUANTE { $$ = mknode(N_FLOAT); $$->dval = $1; }
+    | TEXTO { $$ = mknode(N_STR); $$->sval = $1; }
+    | TRUE_ { $$ = mknode(N_BOOL); $$->ival = 1; }
+    | FALSE_ { $$ = mknode(N_BOOL); $$->ival = 0; }
+    | NONE_ { $$ = mknode(N_NONE); }
+    | IDENTIFICADOR { $$ = mknode(N_VAR); $$->sval = $1; }
+    | PARENTESES_ESQ expr PARENTESES_DIR { $$ = $2; }
+    ;
+
+arglist_opt:
+      /* vazio */ { $$ = NULL; }
+    | arglist { $$ = $1; }
+    ;
+
+arglist:
+      expr { $$ = $1; }
+    | arglist VIRGULA expr { $$ = append_list($1, $3); }
+    ;
+
+%%
+
+/* ===================== Sinalizacao de break/continue ===================== */
 
 typedef enum { SIG_NONE, SIG_BREAK, SIG_CONTINUE } Signal;
 static Signal signal_flag = SIG_NONE;
@@ -357,158 +508,6 @@ static void exec_stmt(Node *n, Scope *sc) {
     }
 }
 
-%}
-
-%%
-
-program:
-      stmts { raiz = mknode(N_PROGRAM); raiz->a = $1; }
-    | /* programa vazio */ { raiz = mknode(N_PROGRAM); }
-    ;
-
-stmts:
-      stmts stmt { $$ = append_list($1, $2); }
-    | stmt { $$ = $1; }
-    ;
-
-stmt:
-      simple_stmt NOVA_LINHA { $$ = $1; }
-    | compound_stmt { $$ = $1; }
-    ;
-
-simple_stmt:
-      expr_stmt { $$ = $1; }
-    | pass_stmt { $$ = $1; }
-    | break_stmt { $$ = $1; }
-    | continue_stmt { $$ = $1; }
-    ;
-
-expr_stmt:
-      IDENTIFICADOR OP_ATRIBUICAO expr {
-          $$ = mknode(N_ASSIGN); $$->sval = $1; $$->a = $3;
-      }
-    | expr {
-          $$ = mknode(N_EXPRSTMT); $$->a = $1;
-      }
-    ;
-
-pass_stmt: PASS { $$ = mknode(N_PASS); } ;
-break_stmt: BREAK { $$ = mknode(N_BREAK); } ;
-continue_stmt: CONTINUE { $$ = mknode(N_CONTINUE); } ;
-
-compound_stmt:
-      if_stmt { $$ = $1; }
-    | while_stmt { $$ = $1; }
-    ;
-
-if_stmt:
-      IF expr DOIS_PONTOS block {
-          $$ = mknode(N_IF); $$->a = $2; $$->b = $4;
-      }
-    | IF expr DOIS_PONTOS block ELSE DOIS_PONTOS block {
-          $$ = mknode(N_IF); $$->a = $2; $$->b = $4; $$->c = $7;
-      }
-    ;
-
-while_stmt:
-      WHILE expr DOIS_PONTOS block {
-          $$ = mknode(N_WHILE); $$->a = $2; $$->b = $4;
-      }
-    ;
-
-block:
-      NOVA_LINHA INDENT stmts DEDENT { $$ = $3; }
-    | simple_stmt NOVA_LINHA { $$ = $1; }
-    ;
-
-/* ---------- expressoes (precedencia crescente) ---------- */
-
-expr: or_test { $$ = $1; } ;
-
-or_test:
-      or_test OR and_test { $$ = mknode(N_BOOLOP); $$->ival = OR; $$->a = $1; $$->b = $3; }
-    | and_test { $$ = $1; }
-    ;
-
-and_test:
-      and_test AND not_test { $$ = mknode(N_BOOLOP); $$->ival = AND; $$->a = $1; $$->b = $3; }
-    | not_test { $$ = $1; }
-    ;
-
-not_test:
-      NOT not_test { $$ = mknode(N_NOT); $$->a = $2; }
-    | comparison { $$ = $1; }
-    ;
-
-comparison:
-      arith_expr compare_op arith_expr { $$ = mknode(N_COMPARE); $$->ival = $2; $$->a = $1; $$->b = $3; }
-    | arith_expr { $$ = $1; }
-    ;
-
-compare_op:
-      OP_MENOR { $$ = OP_MENOR; }
-    | OP_MAIOR { $$ = OP_MAIOR; }
-    | OP_MENOR_IGUAL { $$ = OP_MENOR_IGUAL; }
-    | OP_MAIOR_IGUAL { $$ = OP_MAIOR_IGUAL; }
-    | OP_IGUAL_IGUAL { $$ = OP_IGUAL_IGUAL; }
-    | OP_DIFERENTE { $$ = OP_DIFERENTE; }
-    ;
-
-arith_expr:
-      arith_expr OP_MAIS term { $$ = mknode(N_BINOP); $$->ival = OP_MAIS; $$->a = $1; $$->b = $3; }
-    | arith_expr OP_MENOS term { $$ = mknode(N_BINOP); $$->ival = OP_MENOS; $$->a = $1; $$->b = $3; }
-    | term { $$ = $1; }
-    ;
-
-term:
-      term OP_MULTIPLICACAO factor { $$ = mknode(N_BINOP); $$->ival = OP_MULTIPLICACAO; $$->a = $1; $$->b = $3; }
-    | term OP_DIVISAO factor { $$ = mknode(N_BINOP); $$->ival = OP_DIVISAO; $$->a = $1; $$->b = $3; }
-    | term OP_DIVISAO_INTEIRA factor { $$ = mknode(N_BINOP); $$->ival = OP_DIVISAO_INTEIRA; $$->a = $1; $$->b = $3; }
-    | term OP_MODULO factor { $$ = mknode(N_BINOP); $$->ival = OP_MODULO; $$->a = $1; $$->b = $3; }
-    | factor { $$ = $1; }
-    ;
-
-factor:
-      OP_MENOS factor { $$ = mknode(N_UNOP); $$->ival = OP_MENOS; $$->a = $2; }
-    | OP_MAIS factor { $$ = mknode(N_UNOP); $$->ival = OP_MAIS; $$->a = $2; }
-    | power { $$ = $1; }
-    ;
-
-power:
-      atom_trailer OP_POTENCIA factor { $$ = mknode(N_BINOP); $$->ival = OP_POTENCIA; $$->a = $1; $$->b = $3; }
-    | atom_trailer { $$ = $1; }
-    ;
-
-atom_trailer:
-      IDENTIFICADOR PARENTESES_ESQ arglist_opt PARENTESES_DIR {
-          $$ = mknode(N_CALL); $$->sval = $1; $$->a = $3;
-      }
-    | atom { $$ = $1; }
-    ;
-
-atom:
-      INTEIRO { $$ = mknode(N_INT); $$->ival = $1; }
-    | FLUTUANTE { $$ = mknode(N_FLOAT); $$->dval = $1; }
-    | TEXTO { $$ = mknode(N_STR); $$->sval = $1; }
-    | TRUE_ { $$ = mknode(N_BOOL); $$->ival = 1; }
-    | FALSE_ { $$ = mknode(N_BOOL); $$->ival = 0; }
-    | NONE_ { $$ = mknode(N_NONE); }
-    | IDENTIFICADOR { $$ = mknode(N_VAR); $$->sval = $1; }
-    | PARENTESES_ESQ expr PARENTESES_DIR { $$ = $2; }
-    ;
-
-arglist_opt:
-      /* vazio */ { $$ = NULL; }
-    | arglist { $$ = $1; }
-    ;
-
-arglist:
-      expr { $$ = $1; }
-    | arglist VIRGULA expr { $$ = append_list($1, $3); }
-    ;
-
-%%
-
 void yyerror(const char *s) {
     fprintf(stderr, "ERRO DE SINTAXE na linha %d: %s\n", linha_atual, s);
 }
@@ -519,4 +518,3 @@ void executar_programa(void) {
         exec_block(raiz->a, global);
     }
 }
-
