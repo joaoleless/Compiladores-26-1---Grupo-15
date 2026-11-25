@@ -5,6 +5,8 @@
 
 # Generated Flex/Bison sources
 /lex.yy.c
+/parser.tab.c
+/parser.tab.h
 /lexer/lex.yy.c
 /parser/parser.tab.c
 /parser/parser.tab.h
