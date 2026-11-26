@@ -43,7 +43,8 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 .
 ├── docs/
 │   ├── decisoes-tecnicas.md     # Decisões técnicas, com justificativa e alternativa descartada
-│   └── problemas-e-solucoes.md  # Problemas encontrados e soluções adotadas
+│   ├── problemas-e-solucoes.md  # Problemas encontrados e soluções adotadas
+│   └── sprints.md               # Ciclos de trabalho do projeto
 ├── lexer/
 │   ├── lexer.l                  # Analisador léxico (Flex)
 │   ├── suite_testes_lexer.py    # Arquivo de entrada usado nos testes do lexer
@@ -68,6 +69,7 @@ devem ser editados manualmente.
 | --- | --- |
 | [Decisões técnicas](docs/decisoes-tecnicas.md) | Por que cada decisão foi tomada e qual alternativa foi descartada: escopo da linguagem, interpretação da AST, escopo global, tratamento da indentação no lexer, erros léxicos |
 | [Problemas encontrados e soluções](docs/problemas-e-solucoes.md) | Comportamentos que divergiam do Python, causa, solução adotada e commit de cada correção; decisões sobre erros de execução e inteiros de 64 bits |
+| [Sprints](docs/sprints.md) | Ciclos de trabalho do projeto, com período, objetivo e commits entregues em cada um |
 
 ---
 
