@@ -204,6 +204,15 @@ class ParserInterpreterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "abcdefghij" * 60 + "\n")
 
+    def test_string_repetition(self):
+        self.assert_program_output(
+            'print("ab" * 3)\nprint(2 * "xy")\nprint("ab" * 0 + "|")\nprint("ab" * -1 + "|")\nprint("a" * True)\n',
+            "ababab\nxyxy\n|\n|\na\n",
+        )
+
+    def test_string_repetition_by_float_is_type_error(self):
+        self.assert_runtime_error('print("a" * 1.5)\n', "TypeError")
+
     # ---------- variaveis ----------
 
     def test_variable_reassignment_and_chaining(self):

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 int yylex(void);
 void yyerror(const char *s);
@@ -493,6 +494,24 @@ static Value *eval_expr(Node *n, Scope *sc) {
                 char *buf = malloc(la + lb + 1);
                 memcpy(buf, l->sval, la);
                 memcpy(buf + la, r->sval, lb + 1);
+                Value *res = new_str(buf);
+                free(buf);
+                return res;
+            }
+
+            /* Repeticao de string: str * int ou int * str (bool conta como int). */
+            if (n->ival == OP_MULTIPLICACAO
+                && ((l->type == V_STR && (r->type == V_INT || r->type == V_BOOL))
+                    || (r->type == V_STR && (l->type == V_INT || l->type == V_BOOL)))) {
+                Value *s = l->type == V_STR ? l : r;
+                long times = as_long(l->type == V_STR ? r : l);
+                size_t len = strlen(s->sval);
+                if (times <= 0 || len == 0) return new_str("");
+                if ((size_t)times > (SIZE_MAX - 1) / len)
+                    runtime_error("MemoryError: string repetida grande demais");
+                char *buf = malloc(len * (size_t)times + 1);
+                for (long i = 0; i < times; i++) memcpy(buf + (size_t)i * len, s->sval, len);
+                buf[len * (size_t)times] = '\0';
                 Value *res = new_str(buf);
                 free(buf);
                 return res;
