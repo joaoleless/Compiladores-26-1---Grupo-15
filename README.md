@@ -85,8 +85,8 @@ O analisador léxico é implementado em Flex e é responsável por transformar o
 
 | Token | Padrão Flex | Exemplo |
 | --- | --- | --- |
-| `INTEIRO` | `[0-9]+` | `42`, `0`, `1000` |
-| `FLUTUANTE` | `[0-9]+"."[0-9]*` ou `"."[0-9]+` | `3.14`, `.5`, `1.` |
+| `INTEIRO` | `[0-9]+` (até 64 bits; maior que isso é erro léxico) | `42`, `0`, `1000` |
+| `FLUTUANTE` | `[0-9]+"."[0-9]*` ou `"."[0-9]+`, com expoente opcional `[eE][+-]?[0-9]+`; ou `[0-9]+` com expoente | `3.14`, `.5`, `1.`, `1e3`, `2.5e-1` |
 | `TEXTO` | Aspas simples ou duplas com escapes | `"olá\n"`, `'teste\'s'` |
 | `IDENTIFICADOR` | `[a-zA-Z_][a-zA-Z0-9_]*` | `x`, `minha_funcao`, `_tmp` |
 
@@ -315,7 +315,7 @@ typedef struct Value {
 
 **Impressão de valores (`print_value`):**
 - Inteiros: formato `%ld`
-- Reais: menor representação que preserva o valor, sempre com ponto decimal, como no Python (`2.0`, `0.1`, `1e+20`)
+- Reais: menor representação que preserva o valor, como o `repr` do Python: notação fixa para expoentes de -4 a 15 (`2.0`, `0.1`, `1500.0`) e científica fora disso (`1e-05`, `1e+20`)
 - Booleanos: `True` ou `False`
 - `None`: `None`
 
@@ -329,7 +329,7 @@ typedef struct Scope {
 } Scope;
 ```
 
-- `scope_get()` procura a variável no escopo; se não existir, emite erro e devolve `None`.
+- `scope_get()` procura a variável no escopo; se não existir, interrompe a execução com erro (equivalente ao `NameError` do Python).
 - `scope_set()` atualiza a variável ou cria uma nova entrada.
 
 ### Funções Embutidas
@@ -337,8 +337,8 @@ typedef struct Scope {
 | Função | Comportamento |
 | --- | --- |
 | `print(*args)` | Imprime os argumentos separados por espaço, seguido de `\n` |
-| `int(x)` | Converte para inteiro |
-| `float(x)` | Converte para ponto flutuante |
+| `int(x)` | Converte `int`, `bool`, `float` (truncando) ou `str` com um inteiro (`" 42 "`) para inteiro; `int()` devolve `0` |
+| `float(x)` | Converte número ou `str` com um número (`"3.5"`, `"1e3"`) para ponto flutuante; `float()` devolve `0.0` |
 | `str(x)` | Converte para string |
 
 ### Sinalizadores de Controle de Fluxo
@@ -358,17 +358,40 @@ Cada nível de execução verifica `signal_flag` após executar cada instrução
 
 | Operação | Comportamento |
 | --- | --- |
-| `a + b` | Soma numérica ou concatenação de strings |
+| `a + b` | Soma numérica ou concatenação de duas strings |
 | `a - b` | Subtração |
-| `a * b` | Multiplicação |
+| `a * b` | Multiplicação, ou repetição de string (`"ab" * 3`, `3 * "ab"`) |
 | `a / b` | Divisão (sempre resulta em `float`) |
-| `a // b` | Divisão inteira (`floor`) |
-| `a % b` | Módulo |
-| `a ** b` | Potenciação (usa `pow()` da `math.h`) |
+| `a // b` | Divisão inteira arredondada para baixo (`-7 // 2` é `-4`); `float` se algum operando for `float` |
+| `a % b` | Módulo com o sinal do divisor (`-7 % 3` é `2`), como no Python |
+| `a ** b` | Potenciação: inteira (exponenciação por quadrados) para `int ** int` com expoente ≥ 0; `pow()` da `math.h` nos demais casos |
+
+`bool` participa das operações como inteiro (`True + 1` é `2`). Operações com
+`str` ou `None` fora dos casos acima geram `TypeError`.
 
 #### Relacionais
 
-Suporte completo a `<`, `>`, `<=`, `>=`, `==`, `!=` para números e strings (comparação lexicográfica).
+Suporte a `<`, `>`, `<=`, `>=`, `==`, `!=` entre números (incluindo `bool`) e entre
+strings (comparação lexicográfica). Entre tipos diferentes ou com `None`, `==` e
+`!=` comparam como o Python (`"a" == 0` é `False`, `None == None` é `True`), e
+`<`, `>`, `<=`, `>=` geram `TypeError`.
+
+### Erros de Execução
+
+Como no Python, um erro de execução interrompe o programa: a mensagem vai para
+`stderr`, a saída já impressa é preservada e o código de saída é `1`.
+
+| Situação | Mensagem |
+| --- | --- |
+| Variável ou função não definida | `ERRO: variavel 'x' nao definida` |
+| Divisão, divisão inteira ou módulo por zero | `ERRO: ZeroDivisionError: ...` |
+| Operação com tipos incompatíveis (`"a" + 1`, `None < 1`) | `ERRO: TypeError: ...` |
+| Conversão inválida (`int("abc")`) | `ERRO: ValueError: ...` |
+| Inteiro fora de 64 bits (`2 ** 100`) | `ERRO: OverflowError: ...` |
+
+**Limitação conhecida:** os inteiros do interpretador são de 64 bits (`long`),
+enquanto o Python não tem limite. Em vez de produzir um resultado errado, o
+estouro gera `OverflowError`.
 
 ---
 
@@ -411,7 +434,7 @@ e verifica a saída produzida. A suíte cobre:
 - precedência, associatividade e parênteses; `**`, `/`, `//`, `%` e promoção `int`/`float`;
 - operadores unários, relacionais e lógicos (retorno de operandos e curto-circuito) e veracidade (`truthy`);
 - strings (concatenação, comparação, escapes), `print` com vários argumentos e conversões `int`/`float`/`str`;
-- variáveis (reatribuição, mudança de tipo) e erros de execução para variável/função inexistente;
+- variáveis (reatribuição, mudança de tipo) e erros de execução (variável/função inexistente, divisão por zero, tipos incompatíveis, conversão inválida e estouro de inteiro), com código de saída `1`;
 - `if/else` (aninhado e em linha única), `while`, `break`, `continue`, `pass` e laços aninhados;
 - comentários, linhas em branco, expressões multi-linha entre parênteses e programa vazio;
 - construções fora do subconjunto (`def`, `for`, listas, `+=`, `elif`) e outros erros sintáticos, com código de saída diferente de zero e sem saída parcial;
@@ -516,6 +539,7 @@ else:
 | Makefile | Completo ✅ |
 | Testes do parser e interpretador | Completo ✅ |
 | Tratamento de erros léxicos e sintáticos | Completo ✅ (mensagens com linha; sem coluna) |
+| Tratamento de erros de execução | Completo ✅ (interrompe com código `1`; sem número de linha) |
 | Cobertura de casos negativos e de todos os comandos | Completo ✅ |
 
 O projeto ainda não está completo. Os recursos listados em **Recursos ainda
