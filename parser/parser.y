@@ -456,6 +456,10 @@ static Value *eval_expr(Node *n, Scope *sc) {
             int floaty = is_floaty(l) || is_floaty(r);
             double a = as_double(l), b = as_double(r);
 
+            if ((n->ival == OP_DIVISAO || n->ival == OP_DIVISAO_INTEIRA || n->ival == OP_MODULO)
+                && b == 0.0)
+                runtime_error("ZeroDivisionError: divisao por zero");
+
             switch (n->ival) {
                 case OP_MAIS: return floaty ? new_float(a+b) : new_int((long)a + (long)b);
                 case OP_MENOS: return floaty ? new_float(a-b) : new_int((long)a - (long)b);

@@ -383,6 +383,11 @@ class ParserInterpreterTests(unittest.TestCase):
         )
         self.assertEqual(result.stdout, "antes\n")
 
+    def test_division_by_zero_is_runtime_error(self):
+        for expr in ("1 / 0", "1 // 0", "10 % 0", "1.0 / 0.0", "1.5 % 0", "7 // 0.0"):
+            with self.subTest(expr=expr):
+                self.assert_runtime_error(f"print({expr})\n", "ZeroDivisionError")
+
     # ---------- executavel ----------
 
     def test_missing_input_file_fails(self):
