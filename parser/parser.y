@@ -113,9 +113,21 @@ static int truthy(Value *v) {
 /* Formata um double como o Python: menor representacao que preserva o valor,
    sempre com ponto decimal (ex.: 2.0, 0.1, 1e+16). */
 static void format_float(double d, char *buf, size_t size) {
-    for (int prec = 1; prec <= 17; prec++) {
-        snprintf(buf, size, "%.*g", prec, d);
+    /* 1) menor numero de digitos significativos que preserva o valor */
+    int prec;
+    for (prec = 1; prec <= 17; prec++) {
+        snprintf(buf, size, "%.*e", prec - 1, d);
         if (strtod(buf, NULL) == d) break;
+    }
+    if (prec > 17) prec = 17;
+    /* 2) como o repr do Python: notacao fixa se -4 <= expoente < 16 */
+    const char *e = strchr(buf, 'e');
+    if (e) {
+        int exp10 = atoi(e + 1);
+        if (exp10 >= -4 && exp10 < 16) {
+            int decimals = prec - 1 - exp10;
+            snprintf(buf, size, "%.*f", decimals > 0 ? decimals : 0, d);
+        }
     }
     if (!strpbrk(buf, ".einEIN")) {
         size_t n = strlen(buf);

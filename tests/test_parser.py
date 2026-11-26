@@ -161,6 +161,16 @@ class ParserInterpreterTests(unittest.TestCase):
             "-4\n-4\n2\n-2\n2.0\n3.0\n-4.0\n1\n",
         )
 
+    def test_float_formatting_matches_python_repr(self):
+        self.assert_program_output(
+            "print(1500.0)\nprint(0.0001)\nprint(0.00001)\nprint(123456789.5)\n"
+            "print(1000000000000000.0)\nprint(10000000000000000.0)\nprint(0.1 + 0.2)\n"
+            "print(-2.5)\nprint(100.0 / 3)\n",
+            "1500.0\n0.0001\n1e-05\n123456789.5\n"
+            "1000000000000000.0\n1e+16\n0.30000000000000004\n"
+            "-2.5\n33.333333333333336\n",
+        )
+
     # ---------- tipos e strings ----------
 
     def test_print_booleans_and_none(self):
