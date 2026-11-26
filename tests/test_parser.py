@@ -375,6 +375,18 @@ class ParserInterpreterTests(unittest.TestCase):
 
     # ---------- formato do codigo-fonte ----------
 
+    def test_file_without_trailing_newline(self):
+        cases = (
+            ('print(1)', "1\n"),
+            ('x = 2\nprint(x)  # comentario', "2\n"),
+            ('if True:\n    print("a")', "a\n"),
+            ('i = 0\nwhile i < 2:\n    if True:\n        print(i)\n    i = i + 1', "0\n1\n"),
+            ('x = 1\n# so comentario no fim', ""),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assert_program_output(source, expected)
+
     def test_comments_and_blank_lines(self):
         self.assert_program_output(
             "# comentario inicial\n\nx = 1  # inline\n\n# outro\nprint(x)\n",

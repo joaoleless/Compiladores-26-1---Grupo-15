@@ -226,7 +226,7 @@ class LexerTests(unittest.TestCase):
     def test_file_without_trailing_newline(self):
         self.assertEqual(
             self.run_lexer("x = 1"),
-            ["IDENTIFICADOR", "OP_ATRIBUICAO", "INTEIRO"],
+            ["IDENTIFICADOR", "OP_ATRIBUICAO", "INTEIRO", "NOVA_LINHA"],
         )
 
 

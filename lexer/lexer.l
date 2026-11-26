@@ -23,6 +23,7 @@ static int indent_top = 0;      /* indent_stack[indent_top] = nivel atual */
 static int pending_dedents = 0; /* DEDENTs extras a devolver nas proximas chamadas */
 static int paren_depth = 0;     /* profundidade de ( [ {  -> ignora NEWLINE dentro */
 static int last_indent_action = 0; /* 0=nada, 1=INDENT, 2=DEDENT (preenchido por process_indent) */
+static int ultimo_token = 0;   /* ultimo token devolvido ao parser (0 = nenhum ainda) */
 
 /* calcula a indentacao de "espacos" (tabs contam 8) e atualiza a pilha de indentacao */
 static void process_indent(const char *espacos) {
@@ -235,6 +236,13 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
             }
 
 <<EOF>>     {
+                /* ultima linha sem '\n' no fim do arquivo: o Python considera a linha
+                   encerrada, entao emitimos a NOVA_LINHA que faltou e voltamos ao
+                   estado BOL, que fecha os blocos abertos com DEDENT. */
+                if (paren_depth == 0 && ultimo_token != 0 && ultimo_token != NOVA_LINHA) {
+                    BEGIN(BOL);
+                    return NOVA_LINHA;
+                }
                 if (indent_top > 0) {
                     pending_dedents = indent_top - 1;
                     indent_top = 0;
@@ -255,7 +263,7 @@ int yylex(void) {
     }
     if (pending_dedents > 0) {
         pending_dedents--;
-        return DEDENT;
+        return ultimo_token = DEDENT;
     }
-    return flex_scan();
+    return ultimo_token = flex_scan();
 }
