@@ -223,6 +223,13 @@ class LexerTests(unittest.TestCase):
     def test_empty_file_produces_no_tokens(self):
         self.assertEqual(self.run_lexer(""), [])
 
+    def test_windows_line_endings_produce_same_tokens(self):
+        source = "if True:\n    x = 1  # comentario\n\n    # so comentario\ny = 2\n"
+        self.assertEqual(
+            self.run_lexer(source.replace("\n", "\r\n")),
+            self.run_lexer(source),
+        )
+
     def test_file_without_trailing_newline(self):
         self.assertEqual(
             self.run_lexer("x = 1"),

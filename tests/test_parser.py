@@ -375,6 +375,17 @@ class ParserInterpreterTests(unittest.TestCase):
 
     # ---------- formato do codigo-fonte ----------
 
+    def test_windows_line_endings(self):
+        source = (
+            "x = 1\n"
+            "\n"
+            "# comentario\n"
+            "while x < 3:\n"
+            "    print(x)  # no fim da linha\n"
+            "    x = x + 1\n"
+        )
+        self.assert_program_output(source.replace("\n", "\r\n"), "1\n2\n")
+
     def test_file_without_trailing_newline(self):
         cases = (
             ('print(1)', "1\n"),

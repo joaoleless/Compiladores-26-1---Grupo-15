@@ -100,7 +100,7 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
     /* ---------- estado BOL: inicio de linha logica, calcula indentacao ---------- */
 <BOL>[ \t]*"#".*\n     { linha_atual++; /* linha so com comentario: ignora */ }
-<BOL>[ \t]*\n          { linha_atual++; /* linha em branco: ignora */ }
+<BOL>[ \t]*\r?\n        { linha_atual++; /* linha em branco: ignora (aceita \r\n do Windows) */ }
 <BOL><<EOF>>           {
                             if (indent_top > 0) {
                                 pending_dedents = indent_top - 1;
@@ -225,7 +225,7 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 [ \t]+      { /* espacos fora do inicio de linha: ignora */ }
 
-\n          {
+\r?\n        { /* fim de linha: \n (Linux/macOS) ou \r\n (Windows), como no Python */
                 linha_atual++;
                 if (paren_depth > 0) {
                     /* dentro de ( [ {  quebras de linha nao contam */
