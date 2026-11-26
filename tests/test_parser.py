@@ -68,8 +68,9 @@ class ParserInterpreterTests(unittest.TestCase):
 
     def assert_runtime_error(self, source, message):
         result = self.run_program(source)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(message, result.stderr)
+        return result
 
     def assert_syntax_error(self, source):
         result = self.run_program(source)
@@ -372,6 +373,15 @@ class ParserInterpreterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("ERRO DE INDENTACAO", result.stderr)
         self.assertEqual(result.stdout, "")
+
+    # ---------- erros de execucao ----------
+
+    def test_runtime_error_stops_program(self):
+        result = self.assert_runtime_error(
+            'print("antes")\nprint(x)\nprint("depois")\n',
+            "variavel 'x' nao definida",
+        )
+        self.assertEqual(result.stdout, "antes\n")
 
     # ---------- executavel ----------
 

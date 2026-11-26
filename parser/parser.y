@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdarg.h>
 
 int yylex(void);
 void yyerror(const char *s);
@@ -107,6 +108,19 @@ static void print_value(Value *v) {
     }
 }
 
+/* ===================== Erros de execucao ===================== */
+
+static _Noreturn void runtime_error(const char *fmt, ...) {
+    fflush(stdout);
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, "ERRO: ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+    exit(1);
+}
+
 /* ===================== Escopo / variaveis ===================== */
 
 typedef struct VarEntry {
@@ -126,8 +140,7 @@ static Scope *new_scope(void) {
 static Value *scope_get(Scope *s, const char *name) {
     for (VarEntry *e = s->vars; e; e = e->next)
         if (strcmp(e->name, name) == 0) return e->val;
-    fprintf(stderr, "ERRO: variavel '%s' nao definida\n", name);
-    return new_none();
+    runtime_error("variavel '%s' nao definida", name);
 }
 
 static void scope_set(Scope *s, const char *name, Value *val) {
@@ -370,8 +383,7 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         }
     }
 
-    fprintf(stderr, "ERRO: funcao '%s' nao definida\n", name);
-    return new_none();
+    runtime_error("funcao '%s' nao definida", name);
 }
 
 static Value *eval_expr(Node *n, Scope *sc) {
