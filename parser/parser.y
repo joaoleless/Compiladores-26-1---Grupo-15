@@ -79,6 +79,22 @@ static long as_long(Value *v) {
 
 static int is_floaty(Value *v) { return v->type == V_FLOAT; }
 
+static int is_numeric(Value *v) {
+    return v->type == V_INT || v->type == V_FLOAT || v->type == V_BOOL;
+}
+
+/* Nome do tipo como o Python mostra nas mensagens de TypeError. */
+static const char *type_name(Value *v) {
+    switch (v->type) {
+        case V_INT: return "int";
+        case V_FLOAT: return "float";
+        case V_STR: return "str";
+        case V_BOOL: return "bool";
+        case V_NONE: return "NoneType";
+    }
+    return "?";
+}
+
 static int truthy(Value *v) {
     switch (v->type) {
         case V_INT: return v->ival != 0;
@@ -357,6 +373,23 @@ static Value *eval_expr(Node *n, Scope *sc);
 static void exec_stmt(Node *n, Scope *sc);
 static void exec_block(Node *block, Scope *sc);
 
+static const char *op_symbol(long op) {
+    switch (op) {
+        case OP_MAIS: return "+";
+        case OP_MENOS: return "-";
+        case OP_MULTIPLICACAO: return "*";
+        case OP_DIVISAO: return "/";
+        case OP_DIVISAO_INTEIRA: return "//";
+        case OP_MODULO: return "%";
+        case OP_POTENCIA: return "**";
+        case OP_MENOR: return "<";
+        case OP_MAIOR: return ">";
+        case OP_MENOR_IGUAL: return "<=";
+        case OP_MAIOR_IGUAL: return ">=";
+    }
+    return "?";
+}
+
 static Value *call_function(const char *name, Node *args, Scope *sc) {
     if (strcmp(name, "print") == 0) {
         int first = 1;
@@ -406,6 +439,9 @@ static Value *eval_expr(Node *n, Scope *sc) {
             return new_bool(!truthy(eval_expr(n->a, sc)));
         case N_UNOP: {
             Value *v = eval_expr(n->a, sc);
+            if (!is_numeric(v))
+                runtime_error("TypeError: operando invalido para '%s' unario: '%s'",
+                              op_symbol(n->ival), type_name(v));
             if (n->ival == OP_MENOS) {
                 if (is_floaty(v)) return new_float(-as_double(v));
                 return new_int(-(long)as_double(v));
@@ -452,11 +488,15 @@ static Value *eval_expr(Node *n, Scope *sc) {
             Value *l = eval_expr(n->a, sc);
             Value *r = eval_expr(n->b, sc);
 
-            if (n->ival == OP_MAIS && (l->type == V_STR || r->type == V_STR)) {
+            if (n->ival == OP_MAIS && l->type == V_STR && r->type == V_STR) {
                 char buf[512];
                 snprintf(buf, sizeof(buf), "%s%s", l->sval ? l->sval : "", r->sval ? r->sval : "");
                 return new_str(buf);
             }
+
+            if (!is_numeric(l) || !is_numeric(r))
+                runtime_error("TypeError: operandos invalidos para '%s': '%s' e '%s'",
+                              op_symbol(n->ival), type_name(l), type_name(r));
 
             int floaty = is_floaty(l) || is_floaty(r);
             double a = as_double(l), b = as_double(r);

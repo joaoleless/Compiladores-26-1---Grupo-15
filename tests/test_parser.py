@@ -395,6 +395,14 @@ class ParserInterpreterTests(unittest.TestCase):
             with self.subTest(expr=expr):
                 self.assert_runtime_error(f"print({expr})\n", "ZeroDivisionError")
 
+    def test_arithmetic_with_non_numeric_is_type_error(self):
+        for expr in ('"a" + 1', '1 + "a"', '"a" - "b"', "None + 1", "1 * None", '-"a"', "-None"):
+            with self.subTest(expr=expr):
+                self.assert_runtime_error(f"print({expr})\n", "TypeError")
+
+    def test_bool_is_numeric_in_arithmetic(self):
+        self.assert_program_output("print(True + 1)\nprint(-True)\n", "2\n-1\n")
+
     # ---------- executavel ----------
 
     def test_missing_input_file_fails(self):
