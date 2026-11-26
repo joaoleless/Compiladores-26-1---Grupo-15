@@ -90,7 +90,8 @@ DIGIT       [0-9]
 LETTER      [a-zA-Z_]
 ID          {LETTER}({LETTER}|{DIGIT})*
 INTEGER     {DIGIT}+
-FLOAT       {DIGIT}+"."{DIGIT}*|"."{DIGIT}+
+EXP         [eE][+-]?{DIGIT}+
+FLOAT       ({DIGIT}+"."{DIGIT}*|"."{DIGIT}+){EXP}?|{DIGIT}+{EXP}
 STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 %%

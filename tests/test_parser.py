@@ -171,6 +171,12 @@ class ParserInterpreterTests(unittest.TestCase):
             "-2.5\n33.333333333333336\n",
         )
 
+    def test_scientific_notation_floats(self):
+        self.assert_program_output(
+            "print(1.5e3)\nprint(2.5e-1)\nprint(1e30)\nprint(1E3 + 1)\n",
+            "1500.0\n0.25\n1e+30\n1001.0\n",
+        )
+
     # ---------- tipos e strings ----------
 
     def test_print_booleans_and_none(self):

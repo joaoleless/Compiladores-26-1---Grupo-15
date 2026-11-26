@@ -84,6 +84,13 @@ class LexerTests(unittest.TestCase):
              "NOVA_LINHA"],
         )
 
+    def test_scientific_notation_floats(self):
+        self.assertEqual(
+            self.run_lexer("1e3 1.5e3 .5E-2 2.e+10 1e\n"),
+            ["FLUTUANTE", "FLUTUANTE", "FLUTUANTE", "FLUTUANTE",
+             "INTEIRO", "IDENTIFICADOR", "NOVA_LINHA"],
+        )
+
     def test_string_literals_single_and_double_quotes(self):
         self.assertEqual(
             self.run_lexer("\"abc\" 'abc' \"\" 'it\\'s'\n"),
