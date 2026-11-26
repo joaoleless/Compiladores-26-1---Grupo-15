@@ -501,6 +501,39 @@ class ParserInterpreterTests(unittest.TestCase):
             with self.subTest(expr=expr):
                 self.assert_runtime_error(f"print({expr})\n", "OverflowError")
 
+    # ---------- erros semanticos ----------
+
+    def test_break_or_continue_outside_loop_is_rejected_before_running(self):
+        for source in (
+            "print(1)\nbreak\n",
+            "print(1)\ncontinue\n",
+            "x = 1\nif x:\n    break\n",
+            "if True:\n    pass\nelse:\n    continue\n",
+        ):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("ERRO SEMANTICO", result.stderr)
+                self.assertIn("fora de laco", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_break_and_continue_inside_loop_are_accepted(self):
+        self.assert_program_output(
+            "i = 0\n"
+            "while i < 5:\n"
+            "    i = i + 1\n"
+            "    if i == 2:\n"
+            "        continue\n"
+            "    if i == 4:\n"
+            "        break\n"
+            "    print(i)\n"
+            "if True:\n"
+            "    while True:\n"
+            "        break\n"
+            "print(\"fim\")\n",
+            "1\n3\nfim\n",
+        )
+
     # ---------- executavel ----------
 
     def test_missing_input_file_fails(self):

@@ -123,7 +123,27 @@ sentido.
 
 **Alternativa descartada:** encerrar no primeiro erro léxico.
 
-## 9. Erros de execução e inteiros de 64 bits
+## 9. Análise semântica só com o que o Python verifica antes de executar
+
+**Decisão:** antes da execução, uma passada pela AST (`check_stmts`) procura
+`break` e `continue` fora de laço. Se encontrar, informa
+`ERRO SEMANTICO` e o programa não é executado. Variável não definida e
+operações entre tipos incompatíveis continuam sendo detectadas durante a
+execução (`NameError`, `TypeError`), quando a linha é alcançada.
+
+**Por quê:** é o mesmo comportamento do Python. O Python recusa `break` fora de
+laço antes de executar qualquer linha (`SyntaxError`), mas só acusa variável não
+definida ou tipos incompatíveis ao chegar na linha: um programa que imprime algo
+antes do erro imprime normalmente. Verificar esses casos antes da execução faria
+o interpretador recusar programas que o Python roda em parte, ou nunca chega a
+executar a linha com erro (por exemplo, dentro de um `if False:`).
+
+**Alternativa descartada:** recusar antes da execução qualquer variável que não
+seja atribuída em nenhum lugar do programa e qualquer operação entre literais de
+tipos incompatíveis (`"a" + 1`). Seria uma verificação mais rígida que a do
+Python, e o objetivo do projeto é se comportar como ele.
+
+## 10. Erros de execução e inteiros de 64 bits
 
 As decisões sobre erros de execução (interromper o programa com código de saída
 1) e sobre o limite de 64 bits dos inteiros (`OverflowError`) estão

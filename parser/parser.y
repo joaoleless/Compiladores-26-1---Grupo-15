@@ -706,8 +706,40 @@ void yyerror(const char *s) {
     fprintf(stderr, "ERRO DE SINTAXE na linha %d: %s\n", linha_atual, s);
 }
 
+/* ===================== Analise semantica ===================== */
+
+/* Percorre a AST antes da execucao. Por enquanto verifica break/continue
+   fora de laco, que o Python rejeita antes de executar qualquer linha. */
+static int erros_semanticos = 0;
+
+static void check_stmts(Node *s, int dentro_de_laco) {
+    for (; s; s = s->next) {
+        switch (s->type) {
+            case N_BREAK:
+            case N_CONTINUE:
+                if (!dentro_de_laco) {
+                    fprintf(stderr, "ERRO SEMANTICO: '%s' fora de laco\n",
+                            s->type == N_BREAK ? "break" : "continue");
+                    erros_semanticos++;
+                }
+                break;
+            case N_IF:
+                check_stmts(s->b, dentro_de_laco);
+                check_stmts(s->c, dentro_de_laco);
+                break;
+            case N_WHILE:
+                check_stmts(s->b, 1);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 void executar_programa(void) {
     if (raiz) {
+        check_stmts(raiz->a, 0);
+        if (erros_semanticos > 0) exit(1);
         Scope *global = new_scope();
         exec_block(raiz->a, global);
     }
