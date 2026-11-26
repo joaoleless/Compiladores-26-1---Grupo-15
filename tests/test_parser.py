@@ -441,6 +441,13 @@ class ParserInterpreterTests(unittest.TestCase):
         self.assertIn("linha 2", result.stderr)
         self.assertEqual(result.stdout, "")
 
+    def test_integer_literal_out_of_range_is_lexical_error(self):
+        result = self.run_program("print(1)\nx = 99999999999999999999\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ERRO LEXICO", result.stderr)
+        self.assertIn("linha 2", result.stderr)
+        self.assertEqual(result.stdout, "")
+
     def test_indentation_error_returns_nonzero(self):
         result = self.run_program("if True:\n        print(1)\n    print(2)\n")
         self.assertEqual(result.returncode, 1)

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "parser.tab.h"
 
 /* Renomeia a função gerada pelo flex para "flex_scan".
@@ -161,7 +162,15 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 {ID}        { yylval.str = strdup(yytext); return IDENTIFICADOR; }
 {FLOAT}     { yylval.dval = atof(yytext);   return FLUTUANTE; }
-{INTEGER}   { yylval.ival = atol(yytext);   return INTEIRO; }
+{INTEGER}   {
+                errno = 0;
+                yylval.ival = strtol(yytext, NULL, 10);
+                if (errno == ERANGE) {
+                    fprintf(stderr, "ERRO LEXICO: inteiro '%s' fora do intervalo de 64 bits na linha %d\n", yytext, linha_atual);
+                    erros_lexicos++;
+                }
+                return INTEIRO;
+            }
 {STRING}    { yylval.str = unescape(yytext); return TEXTO; }
 
 "**="       { return OP_ATRIBUICAO_POTENCIA; }
