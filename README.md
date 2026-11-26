@@ -41,6 +41,8 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 
 ```text
 .
+├── docs/
+│   └── problemas-e-solucoes.md  # Problemas encontrados e soluções adotadas
 ├── lexer/
 │   ├── lexer.l                  # Analisador léxico (Flex)
 │   ├── suite_testes_lexer.py    # Arquivo de entrada usado nos testes do lexer
@@ -58,6 +60,12 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 
 Os arquivos gerados pelo Bison e pelo Flex ficam em `parser/` e `lexer/` e não
 devem ser editados manualmente.
+
+### Documentação
+
+| Documento | Conteúdo |
+| --- | --- |
+| [Problemas encontrados e soluções](docs/problemas-e-solucoes.md) | Comportamentos que divergiam do Python, causa, solução adotada e commit de cada correção; decisões sobre erros de execução e inteiros de 64 bits |
 
 ---
 
