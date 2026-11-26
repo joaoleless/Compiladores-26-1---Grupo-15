@@ -10,7 +10,7 @@ LEXER_C = lexer/lex.yy.c
 
 all: compilador
 
-compilador: src/main.o src/ast.o src/valores.o parser/parser.tab.o lexer/lex.yy.o
+compilador: src/main.o src/ast.o src/valores.o src/tabela.o parser/parser.tab.o lexer/lex.yy.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 src/main.o: src/main.c
@@ -22,7 +22,10 @@ src/ast.o: src/ast.c src/ast.h
 src/valores.o: src/valores.c src/valores.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-parser/parser.tab.o: $(PARSER_C) $(PARSER_H) src/ast.h src/valores.h
+src/tabela.o: src/tabela.c src/tabela.h src/valores.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+parser/parser.tab.o: $(PARSER_C) $(PARSER_H) src/ast.h src/valores.h src/tabela.h
 	$(CC) $(CFLAGS) -c $(PARSER_C) -o $@
 
 lexer/lex.yy.o: $(LEXER_C) $(PARSER_H)

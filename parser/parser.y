@@ -16,6 +16,7 @@ extern int linha_atual;
 
 #include "ast.h"
 #include "valores.h"
+#include "tabela.h"
 
 /* ===================== Erros de execucao ===================== */
 
@@ -34,39 +35,6 @@ static _Noreturn void runtime_error(const char *fmt, ...) {
    Em vez de dar um resultado errado, o estouro interrompe a execucao. */
 static _Noreturn void int_overflow(void) {
     runtime_error("OverflowError: inteiro fora do intervalo de 64 bits");
-}
-
-/* ===================== Escopo / variaveis ===================== */
-
-typedef struct VarEntry {
-    char *name;
-    Value *val;
-    struct VarEntry *next;
-} VarEntry;
-
-typedef struct Scope {
-    VarEntry *vars;
-} Scope;
-
-static Scope *new_scope(void) {
-    return calloc(1, sizeof(Scope));
-}
-
-static Value *scope_get(Scope *s, const char *name) {
-    for (VarEntry *e = s->vars; e; e = e->next)
-        if (strcmp(e->name, name) == 0) return e->val;
-    runtime_error("variavel '%s' nao definida", name);
-}
-
-static void scope_set(Scope *s, const char *name, Value *val) {
-    for (VarEntry *e = s->vars; e; e = e->next) {
-        if (strcmp(e->name, name) == 0) { e->val = val; return; }
-    }
-    VarEntry *e = calloc(1, sizeof(VarEntry));
-    e->name = strdup(name);
-    e->val = val;
-    e->next = s->vars;
-    s->vars = e;
 }
 
 Node *raiz = NULL;
@@ -365,7 +333,11 @@ static Value *eval_expr(Node *n, Scope *sc) {
         case N_STR: return new_str(n->sval);
         case N_BOOL: return new_bool(n->ival);
         case N_NONE: return new_none();
-        case N_VAR: return scope_get(sc, n->sval);
+        case N_VAR: {
+            Value *v = scope_get(sc, n->sval);
+            if (!v) runtime_error("variavel '%s' nao definida", n->sval);
+            return v;
+        }
         case N_CALL:
             return call_function(n->sval, n->a, sc);
         case N_NOT:
