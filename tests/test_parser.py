@@ -453,6 +453,31 @@ class ParserInterpreterTests(unittest.TestCase):
     def test_bool_is_numeric_in_arithmetic(self):
         self.assert_program_output("print(True + 1)\nprint(-True)\n", "2\n-1\n")
 
+    def test_integer_power_and_large_values_within_64_bits(self):
+        self.assert_program_output(
+            "print(2 ** 62)\nprint((-2) ** 63)\nprint(3 ** 0)\nprint(2 ** -1)\n"
+            "print(9223372036854775807)\nprint(-9223372036854775807 - 1)\n"
+            "print(int(-9223372036854775808.0))\nprint(3037000499 * 3037000499)\n",
+            "4611686018427387904\n-9223372036854775808\n1\n0.5\n"
+            "9223372036854775807\n-9223372036854775808\n"
+            "-9223372036854775808\n9223372030926249001\n",
+        )
+
+    def test_integer_overflow_is_runtime_error(self):
+        for expr in (
+            "2 ** 63",
+            "2 ** 100",
+            "9223372036854775807 + 1",
+            "-9223372036854775807 - 2",
+            "3037000500 * 3037000500",
+            "-(-9223372036854775807 - 1)",
+            "(-9223372036854775807 - 1) // -1",
+            "int(100000000000000000000.0)",
+            'int("99999999999999999999")',
+        ):
+            with self.subTest(expr=expr):
+                self.assert_runtime_error(f"print({expr})\n", "OverflowError")
+
     # ---------- executavel ----------
 
     def test_missing_input_file_fails(self):

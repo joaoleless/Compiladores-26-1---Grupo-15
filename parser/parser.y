@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 
 int yylex(void);
 void yyerror(const char *s);
@@ -142,6 +144,12 @@ static _Noreturn void runtime_error(const char *fmt, ...) {
     fprintf(stderr, "\n");
     va_end(ap);
     exit(1);
+}
+
+/* Os inteiros do interpretador sao de 64 bits (long); o Python nao tem limite.
+   Em vez de dar um resultado errado, o estouro interrompe a execucao. */
+static _Noreturn void int_overflow(void) {
+    runtime_error("OverflowError: inteiro fora do intervalo de 64 bits");
 }
 
 /* ===================== Escopo / variaveis ===================== */
@@ -414,12 +422,18 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         Value *v = eval_expr(args, sc);
         switch (v->type) {
             case V_INT: case V_BOOL: return new_int(v->ival);
-            case V_FLOAT: return new_int((long) v->dval);
+            case V_FLOAT:
+                /* -2^63 e exato em double; 2^63 ja nao cabe em long. */
+                if (!(v->dval >= -9223372036854775808.0 && v->dval < 9223372036854775808.0))
+                    int_overflow();
+                return new_int((long) v->dval);
             case V_STR: {
                 char *end;
+                errno = 0;
                 long x = strtol(v->sval, &end, 10);
                 if (end == v->sval || !only_spaces(end))
                     runtime_error("ValueError: literal invalido para int(): '%s'", v->sval);
+                if (errno == ERANGE) int_overflow();
                 return new_int(x);
             }
             case V_NONE:
@@ -479,7 +493,9 @@ static Value *eval_expr(Node *n, Scope *sc) {
                               op_symbol(n->ival), type_name(v));
             if (n->ival == OP_MENOS) {
                 if (is_floaty(v)) return new_float(-as_double(v));
-                return new_int(-(long)as_double(v));
+                long x = as_long(v);
+                if (x == LONG_MIN) int_overflow();
+                return new_int(-x);
             }
             return v; /* unario + */
         }
@@ -572,15 +588,28 @@ static Value *eval_expr(Node *n, Scope *sc) {
                 runtime_error("ZeroDivisionError: divisao por zero");
 
             switch (n->ival) {
-                case OP_MAIS: return floaty ? new_float(a+b) : new_int((long)a + (long)b);
-                case OP_MENOS: return floaty ? new_float(a-b) : new_int((long)a - (long)b);
-                case OP_MULTIPLICACAO: return floaty ? new_float(a*b) : new_int((long)a * (long)b);
+                case OP_MAIS:
+                case OP_MENOS:
+                case OP_MULTIPLICACAO: {
+                    if (floaty) {
+                        if (n->ival == OP_MAIS) return new_float(a + b);
+                        if (n->ival == OP_MENOS) return new_float(a - b);
+                        return new_float(a * b);
+                    }
+                    long x = as_long(l), y = as_long(r), res;
+                    int overflow = n->ival == OP_MAIS ? __builtin_add_overflow(x, y, &res)
+                                 : n->ival == OP_MENOS ? __builtin_sub_overflow(x, y, &res)
+                                 : __builtin_mul_overflow(x, y, &res);
+                    if (overflow) int_overflow();
+                    return new_int(res);
+                }
                 case OP_DIVISAO: return new_float(a / b);
                 /* Python arredonda // para baixo (piso) e o resto de % tem o sinal
                    do divisor; em C, / e % truncam em direcao a zero. */
                 case OP_DIVISAO_INTEIRA: {
                     if (floaty) return new_float(floor(a / b));
                     long x = as_long(l), y = as_long(r);
+                    if (x == LONG_MIN && y == -1) int_overflow();
                     long q = x / y;
                     if ((x % y != 0) && ((x < 0) != (y < 0))) q--;
                     return new_int(q);
@@ -592,14 +621,22 @@ static Value *eval_expr(Node *n, Scope *sc) {
                         return new_float(m);
                     }
                     long x = as_long(l), y = as_long(r);
+                    if (y == -1) return new_int(0); /* LONG_MIN % -1 e indefinido em C */
                     long m = x % y;
                     if (m != 0 && ((m < 0) != (y < 0))) m += y;
                     return new_int(m);
                 }
                 case OP_POTENCIA: {
-                    double res = pow(a, b);
-                    if (!floaty && b >= 0) return new_int((long) res);
-                    return new_float(res);
+                    long e = as_long(r);
+                    if (floaty || e < 0) return new_float(pow(a, b));
+                    /* Exponenciacao inteira por quadrados, detectando estouro. */
+                    long base = as_long(l), res = 1;
+                    while (e > 0) {
+                        if ((e & 1) && __builtin_mul_overflow(res, base, &res)) int_overflow();
+                        e >>= 1;
+                        if (e > 0 && __builtin_mul_overflow(base, base, &base)) int_overflow();
+                    }
+                    return new_int(res);
                 }
             }
             return new_none();
