@@ -195,6 +195,15 @@ class ParserInterpreterTests(unittest.TestCase):
             "3\n2.5\n5x\n1.5\nTrue\n",
         )
 
+    def test_long_string_concatenation_is_not_truncated(self):
+        result = self.run_program(
+            's = "abcdefghij"\n'
+            "t = s + s + s + s + s + s + s + s + s + s\n"
+            "print(t + t + t + t + t + t)\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "abcdefghij" * 60 + "\n")
+
     # ---------- variaveis ----------
 
     def test_variable_reassignment_and_chaining(self):

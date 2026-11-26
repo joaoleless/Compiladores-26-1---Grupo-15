@@ -489,9 +489,13 @@ static Value *eval_expr(Node *n, Scope *sc) {
             Value *r = eval_expr(n->b, sc);
 
             if (n->ival == OP_MAIS && l->type == V_STR && r->type == V_STR) {
-                char buf[512];
-                snprintf(buf, sizeof(buf), "%s%s", l->sval ? l->sval : "", r->sval ? r->sval : "");
-                return new_str(buf);
+                size_t la = strlen(l->sval), lb = strlen(r->sval);
+                char *buf = malloc(la + lb + 1);
+                memcpy(buf, l->sval, la);
+                memcpy(buf + la, r->sval, lb + 1);
+                Value *res = new_str(buf);
+                free(buf);
+                return res;
             }
 
             if (!is_numeric(l) || !is_numeric(r))
