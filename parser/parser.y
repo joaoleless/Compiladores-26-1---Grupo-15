@@ -14,41 +14,7 @@ int yylex(void);
 void yyerror(const char *s);
 extern int linha_atual;
 
-/* ===================== AST ===================== */
-
-typedef enum {
-    N_PROGRAM, N_BLOCK,
-    N_INT, N_FLOAT, N_STR, N_BOOL, N_NONE, N_VAR,
-    N_BINOP, N_UNOP, N_BOOLOP, N_COMPARE, N_NOT,
-    N_ASSIGN,
-    N_IF, N_WHILE,
-    N_CALL,
-    N_PASS, N_BREAK, N_CONTINUE,
-    N_EXPRSTMT
-} NodeType;
-
-typedef struct Node {
-    NodeType type;
-    long ival;
-    double dval;
-    char *sval;
-    struct Node *a, *b, *c;
-    struct Node *next; /* encadeamento: statements e argumentos */
-} Node;
-
-static Node *mknode(NodeType t) {
-    Node *n = calloc(1, sizeof(Node));
-    n->type = t;
-    return n;
-}
-
-static Node *append_list(Node *list, Node *item) {
-    if (!list) return item;
-    Node *p = list;
-    while (p->next) p = p->next;
-    p->next = item;
-    return list;
-}
+#include "ast.h"
 
 /* ===================== Valores em tempo de execucao ===================== */
 

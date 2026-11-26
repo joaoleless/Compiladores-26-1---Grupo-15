@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L -Iparser
+CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L -Iparser -Isrc
 LDFLAGS = -lm
 
 PARSER_C = parser/parser.tab.c
@@ -10,13 +10,16 @@ LEXER_C = lexer/lex.yy.c
 
 all: compilador
 
-compilador: src/main.o parser/parser.tab.o lexer/lex.yy.o
+compilador: src/main.o src/ast.o parser/parser.tab.o lexer/lex.yy.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 src/main.o: src/main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-parser/parser.tab.o: $(PARSER_C) $(PARSER_H)
+src/ast.o: src/ast.c src/ast.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+parser/parser.tab.o: $(PARSER_C) $(PARSER_H) src/ast.h
 	$(CC) $(CFLAGS) -c $(PARSER_C) -o $@
 
 lexer/lex.yy.o: $(LEXER_C) $(PARSER_H)
