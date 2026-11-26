@@ -177,6 +177,35 @@ class ParserInterpreterTests(unittest.TestCase):
             "1500.0\n0.25\n1e+30\n1001.0\n",
         )
 
+    def test_chained_comparisons(self):
+        self.assert_program_output(
+            "print(0 <= 5 < 10)\n"
+            "print(0 <= 15 < 10)\n"
+            "print(1 == 1 == 1)\n"
+            "print(1 == 1 == 2)\n"
+            "print(1 < 3 > 2)\n"
+            "print(\"a\" < \"b\" < \"c\")\n"
+            "print(1 < 2 < 3 < 4 <= 4)\n"
+            "print((1 < 2) < 3)\n"
+            "print(1 < (2 < 3))\n"
+            "i = 0\n"
+            "while 0 <= i < 3:\n"
+            "    print(i)\n"
+            "    i = i + 1\n",
+            "True\nFalse\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nFalse\n0\n1\n2\n",
+        )
+
+    def test_chained_comparison_short_circuits_and_evaluates_once(self):
+        self.assert_program_output(
+            'print(2 < 1 < "a")\n'
+            'print(1 > 2 < print("nao avaliado"))\n'
+            'print(None == print("meio") == None)\n',
+            "False\nFalse\nmeio\nTrue\n",
+        )
+
+    def test_chained_comparison_type_error(self):
+        self.assert_runtime_error('print(1 < 2 < "a")\n', "TypeError")
+
     # ---------- tipos e strings ----------
 
     def test_print_booleans_and_none(self):

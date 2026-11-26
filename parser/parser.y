@@ -71,7 +71,7 @@ Node *raiz = NULL;
 %type <node> program stmts stmt simple_stmt compound_stmt block
 %type <node> expr_stmt pass_stmt break_stmt continue_stmt
 %type <node> if_stmt while_stmt arglist_opt arglist
-%type <node> expr or_test and_test not_test comparison arith_expr term factor power atom_trailer atom
+%type <node> expr or_test and_test not_test comparison comp_chain arith_expr term factor power atom_trailer atom
 %type <ival> compare_op
 
 %%
@@ -155,9 +155,23 @@ not_test:
     | comparison { $$ = $1; }
     ;
 
+/* Comparacoes podem ser encadeadas como no Python: a < b <= c equivale a
+   (a < b) and (b <= c), avaliando b uma unica vez. O no N_COMPARE guarda o
+   primeiro operando em a e, em b, a lista de pares (operador, operando)
+   como nos N_CMPITEM encadeados por next. */
 comparison:
-      arith_expr compare_op arith_expr { $$ = mknode(N_COMPARE); $$->ival = $2; $$->a = $1; $$->b = $3; }
+      arith_expr comp_chain { $$ = mknode(N_COMPARE); $$->a = $1; $$->b = $2; }
     | arith_expr { $$ = $1; }
+    ;
+
+comp_chain:
+      compare_op arith_expr {
+          $$ = mknode(N_CMPITEM); $$->ival = $1; $$->a = $2;
+      }
+    | comp_chain compare_op arith_expr {
+          Node *item = mknode(N_CMPITEM); item->ival = $2; item->a = $3;
+          $$ = append_list($1, item);
+      }
     ;
 
 compare_op:
@@ -256,6 +270,40 @@ static const char *op_symbol(long op) {
         case OP_MAIOR_IGUAL: return ">=";
     }
     return "?";
+}
+
+/* Resultado (0 ou 1) de l op r, com as regras do Python para cada tipo. */
+static int compare_values(long op, Value *l, Value *r) {
+    if (l->type == V_STR && r->type == V_STR) {
+        int cmp = strcmp(l->sval, r->sval);
+        switch (op) {
+            case OP_MENOR: return cmp < 0;
+            case OP_MAIOR: return cmp > 0;
+            case OP_MENOR_IGUAL: return cmp <= 0;
+            case OP_MAIOR_IGUAL: return cmp >= 0;
+            case OP_IGUAL_IGUAL: return cmp == 0;
+            case OP_DIFERENTE: return cmp != 0;
+        }
+    }
+    if (!is_numeric(l) || !is_numeric(r)) {
+        /* Tipos diferentes (ou None): == e != comparam identidade de
+           tipo/valor; <, >, <=, >= nao sao suportados, como no Python. */
+        int equal = (l->type == V_NONE && r->type == V_NONE);
+        if (op == OP_IGUAL_IGUAL) return equal;
+        if (op == OP_DIFERENTE) return !equal;
+        runtime_error("TypeError: '%s' nao suportado entre '%s' e '%s'",
+                      op_symbol(op), type_name(l), type_name(r));
+    }
+    double a = as_double(l), b = as_double(r);
+    switch (op) {
+        case OP_MENOR: return a < b;
+        case OP_MAIOR: return a > b;
+        case OP_MENOR_IGUAL: return a <= b;
+        case OP_MAIOR_IGUAL: return a >= b;
+        case OP_IGUAL_IGUAL: return a == b;
+        case OP_DIFERENTE: return a != b;
+    }
+    return 0;
 }
 
 static Value *call_function(const char *name, Node *args, Scope *sc) {
@@ -366,39 +414,15 @@ static Value *eval_expr(Node *n, Scope *sc) {
             }
         }
         case N_COMPARE: {
+            /* a op1 b op2 c ...: para no primeiro par falso (curto-circuito),
+               e cada operando do meio e avaliado uma unica vez */
             Value *l = eval_expr(n->a, sc);
-            Value *r = eval_expr(n->b, sc);
-            int cmp;
-            if (l->type == V_STR && r->type == V_STR) {
-                cmp = strcmp(l->sval, r->sval);
-                switch (n->ival) {
-                    case OP_MENOR: return new_bool(cmp < 0);
-                    case OP_MAIOR: return new_bool(cmp > 0);
-                    case OP_MENOR_IGUAL: return new_bool(cmp <= 0);
-                    case OP_MAIOR_IGUAL: return new_bool(cmp >= 0);
-                    case OP_IGUAL_IGUAL: return new_bool(cmp == 0);
-                    case OP_DIFERENTE: return new_bool(cmp != 0);
-                }
+            for (Node *item = n->b; item; item = item->next) {
+                Value *r = eval_expr(item->a, sc);
+                if (!compare_values(item->ival, l, r)) return new_bool(0);
+                l = r;
             }
-            if (!is_numeric(l) || !is_numeric(r)) {
-                /* Tipos diferentes (ou None): == e != comparam identidade de
-                   tipo/valor; <, >, <=, >= nao sao suportados, como no Python. */
-                int equal = (l->type == V_NONE && r->type == V_NONE);
-                if (n->ival == OP_IGUAL_IGUAL) return new_bool(equal);
-                if (n->ival == OP_DIFERENTE) return new_bool(!equal);
-                runtime_error("TypeError: '%s' nao suportado entre '%s' e '%s'",
-                              op_symbol(n->ival), type_name(l), type_name(r));
-            }
-            double a = as_double(l), b = as_double(r);
-            switch (n->ival) {
-                case OP_MENOR: return new_bool(a < b);
-                case OP_MAIOR: return new_bool(a > b);
-                case OP_MENOR_IGUAL: return new_bool(a <= b);
-                case OP_MAIOR_IGUAL: return new_bool(a >= b);
-                case OP_IGUAL_IGUAL: return new_bool(a == b);
-                case OP_DIFERENTE: return new_bool(a != b);
-            }
-            return new_bool(0);
+            return new_bool(1);
         }
         case N_BINOP: {
             Value *l = eval_expr(n->a, sc);
