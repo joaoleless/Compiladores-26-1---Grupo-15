@@ -474,6 +474,15 @@ static Value *eval_expr(Node *n, Scope *sc) {
                     case OP_DIFERENTE: return new_bool(cmp != 0);
                 }
             }
+            if (!is_numeric(l) || !is_numeric(r)) {
+                /* Tipos diferentes (ou None): == e != comparam identidade de
+                   tipo/valor; <, >, <=, >= nao sao suportados, como no Python. */
+                int equal = (l->type == V_NONE && r->type == V_NONE);
+                if (n->ival == OP_IGUAL_IGUAL) return new_bool(equal);
+                if (n->ival == OP_DIFERENTE) return new_bool(!equal);
+                runtime_error("TypeError: '%s' nao suportado entre '%s' e '%s'",
+                              op_symbol(n->ival), type_name(l), type_name(r));
+            }
             double a = as_double(l), b = as_double(r);
             switch (n->ival) {
                 case OP_MENOR: return new_bool(a < b);

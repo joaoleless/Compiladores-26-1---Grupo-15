@@ -213,6 +213,18 @@ class ParserInterpreterTests(unittest.TestCase):
     def test_string_repetition_by_float_is_type_error(self):
         self.assert_runtime_error('print("a" * 1.5)\n', "TypeError")
 
+    def test_equality_between_different_types(self):
+        self.assert_program_output(
+            'print("a" == 0)\nprint("a" != 1)\nprint(None == 0)\nprint(None == None)\n'
+            'print(None != None)\nprint("1" == 1)\nprint(1 == 1.0)\nprint(True == 1)\n',
+            "False\nTrue\nFalse\nTrue\nFalse\nFalse\nTrue\nTrue\n",
+        )
+
+    def test_ordering_between_incompatible_types_is_type_error(self):
+        for expr in ('"a" < 1', '1 >= "a"', "None < 1", "None <= None"):
+            with self.subTest(expr=expr):
+                self.assert_runtime_error(f"print({expr})\n", "TypeError")
+
     # ---------- variaveis ----------
 
     def test_variable_reassignment_and_chaining(self):
