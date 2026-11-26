@@ -154,6 +154,13 @@ class ParserInterpreterTests(unittest.TestCase):
             "sete\ntexto\n",
         )
 
+    def test_floor_division_and_modulo_follow_python(self):
+        self.assert_program_output(
+            "print(-7 // 2)\nprint(7 // -2)\nprint(-7 % 3)\nprint(7 % -3)\n"
+            "print(-7.0 % 3)\nprint(7.0 // 2)\nprint(-7.5 // 2)\nprint(7 % 3)\n",
+            "-4\n-4\n2\n-2\n2.0\n3.0\n-4.0\n1\n",
+        )
+
     # ---------- tipos e strings ----------
 
     def test_print_booleans_and_none(self):

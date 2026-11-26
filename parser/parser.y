@@ -72,6 +72,11 @@ static double as_double(Value *v) {
     }
 }
 
+/* Valor inteiro de int/bool (bool e subtipo de int, como no Python). */
+static long as_long(Value *v) {
+    return (v->type == V_INT || v->type == V_BOOL) ? v->ival : (long)as_double(v);
+}
+
 static int is_floaty(Value *v) { return v->type == V_FLOAT; }
 
 static int truthy(Value *v) {
@@ -465,8 +470,26 @@ static Value *eval_expr(Node *n, Scope *sc) {
                 case OP_MENOS: return floaty ? new_float(a-b) : new_int((long)a - (long)b);
                 case OP_MULTIPLICACAO: return floaty ? new_float(a*b) : new_int((long)a * (long)b);
                 case OP_DIVISAO: return new_float(a / b);
-                case OP_DIVISAO_INTEIRA: return new_int((long) floor(a / b));
-                case OP_MODULO: return floaty ? new_float(fmod(a,b)) : new_int((long)a % (long)b);
+                /* Python arredonda // para baixo (piso) e o resto de % tem o sinal
+                   do divisor; em C, / e % truncam em direcao a zero. */
+                case OP_DIVISAO_INTEIRA: {
+                    if (floaty) return new_float(floor(a / b));
+                    long x = as_long(l), y = as_long(r);
+                    long q = x / y;
+                    if ((x % y != 0) && ((x < 0) != (y < 0))) q--;
+                    return new_int(q);
+                }
+                case OP_MODULO: {
+                    if (floaty) {
+                        double m = fmod(a, b);
+                        if (m != 0.0 && ((m < 0) != (b < 0))) m += b;
+                        return new_float(m);
+                    }
+                    long x = as_long(l), y = as_long(r);
+                    long m = x % y;
+                    if (m != 0 && ((m < 0) != (y < 0))) m += y;
+                    return new_int(m);
+                }
                 case OP_POTENCIA: {
                     double res = pow(a, b);
                     if (!floaty && b >= 0) return new_int((long) res);
