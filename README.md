@@ -42,6 +42,7 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 ```text
 .
 ├── docs/
+│   ├── decisoes-tecnicas.md     # Decisões técnicas, com justificativa e alternativa descartada
 │   └── problemas-e-solucoes.md  # Problemas encontrados e soluções adotadas
 ├── lexer/
 │   ├── lexer.l                  # Analisador léxico (Flex)
@@ -65,6 +66,7 @@ devem ser editados manualmente.
 
 | Documento | Conteúdo |
 | --- | --- |
+| [Decisões técnicas](docs/decisoes-tecnicas.md) | Por que cada decisão foi tomada e qual alternativa foi descartada: escopo da linguagem, interpretação da AST, escopo global, tratamento da indentação no lexer, erros léxicos |
 | [Problemas encontrados e soluções](docs/problemas-e-solucoes.md) | Comportamentos que divergiam do Python, causa, solução adotada e commit de cada correção; decisões sobre erros de execução e inteiros de 64 bits |
 
 ---
