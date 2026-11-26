@@ -50,8 +50,11 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 │   ├── suite_testes_lexer.py    # Arquivo de entrada usado nos testes do lexer
 │   └── Relatorio_Testes_Lexer.md # Relatório de cobertura dos testes léxicos
 ├── parser/
-│   └── parser.y                 # Analisador sintático e interpretador (Bison)
+│   └── parser.y                 # Gramática (Bison), construção da AST, análise semântica e interpretador
 ├── src/
+│   ├── ast.c / ast.h            # Árvore sintática abstrata: tipo Node, mknode, append_list
+│   ├── valores.c / valores.h    # Valores em tempo de execução: tipo Value, conversões, impressão
+│   ├── tabela.c / tabela.h      # Tabela de símbolos: escopo global de variáveis
 │   └── main.c                   # Ponto de entrada do compilador
 ├── tests/
 │   ├── lexer_driver.c           # Driver isolado para testar tokens do lexer
@@ -219,12 +222,17 @@ Erros de indentação inconsistente (onde o nível de recuo não corresponde a n
 
 ### Visão Geral
 
-O analisador sintático é implementado em Bison e realiza duas funções simultâneas:
+Depois da análise léxica, o programa passa por três fases:
 
-1. **Reconhecimento sintático:** verifica se a sequência de tokens segue a gramática definida e, em caso afirmativo, constrói uma **Árvore Sintática Abstrata (AST)**.
-2. **Interpretação:** após a construção da AST, executa o programa diretamente, sem etapa de geração de código intermediário.
+1. **Análise sintática** (`parser/parser.y`): o Bison verifica se a sequência de tokens segue a gramática e, em caso afirmativo, constrói uma **Árvore Sintática Abstrata (AST)**.
+2. **Análise semântica** (`check_stmts`, em `parser/parser.y`): percorre a AST antes da execução e recusa o programa se encontrar `break` ou `continue` fora de laço.
+3. **Interpretação** (`eval_expr`, `exec_stmt` e `exec_block`, em `parser/parser.y`): executa o programa percorrendo a AST, sem etapa de geração de código intermediário.
 
-### Árvore Sintática Abstrata (AST)
+As estruturas usadas nessas fases ficam em módulos próprios em `src/`: a AST
+(`ast.c`/`ast.h`), os valores em tempo de execução (`valores.c`/`valores.h`) e a
+tabela de símbolos (`tabela.c`/`tabela.h`).
+
+### Árvore Sintática Abstrata (`src/ast.h`)
 
 Todos os nós da AST são instâncias de um único tipo `Node`:
 
@@ -304,7 +312,7 @@ block → NOVA_LINHA INDENT stmts DEDENT   (bloco indentado)
 | 8 | `**` (potência) | Direita |
 | 9 (mais alto) | `func(args)` (apenas embutidas) | Esquerda |
 
-### Sistema de Valores em Tempo de Execução
+### Sistema de Valores em Tempo de Execução (`src/valores.h`)
 
 O interpretador representa todos os valores por meio do tipo `Value`:
 
@@ -331,7 +339,7 @@ typedef struct Value {
 - Booleanos: `True` ou `False`
 - `None`: `None`
 
-### Gerenciamento de Escopo e Variáveis
+### Tabela de Símbolos (`src/tabela.h`)
 
 Existe um **único escopo global**, mantido como lista encadeada de variáveis:
 
@@ -341,8 +349,19 @@ typedef struct Scope {
 } Scope;
 ```
 
-- `scope_get()` procura a variável no escopo; se não existir, interrompe a execução com erro (equivalente ao `NameError` do Python).
+- `scope_get()` procura a variável no escopo e devolve `NULL` se ela não existir; nesse caso o interpretador interrompe a execução com erro (equivalente ao `NameError` do Python).
 - `scope_set()` atualiza a variável ou cria uma nova entrada.
+
+### Análise Semântica
+
+Antes de executar, `check_stmts()` percorre a AST guardando se está dentro de um
+`while`. Um `break` ou `continue` fora de laço gera
+`ERRO SEMANTICO: 'break' fora de laco`; havendo algum erro semântico, o programa
+não é executado e o código de saída é `1`, como o `SyntaxError` do Python.
+
+Variável não definida e tipos incompatíveis continuam sendo detectados durante a
+execução, quando a linha é alcançada, também como no Python. A justificativa
+está em [docs/decisoes-tecnicas.md](docs/decisoes-tecnicas.md).
 
 ### Funções Embutidas
 
@@ -448,6 +467,7 @@ e verifica a saída produzida. A suíte cobre:
 - strings (concatenação, comparação, escapes), `print` com vários argumentos e conversões `int`/`float`/`str`;
 - variáveis (reatribuição, mudança de tipo) e erros de execução (variável/função inexistente, divisão por zero, tipos incompatíveis, conversão inválida e estouro de inteiro), com código de saída `1`;
 - `if/else` (aninhado e em linha única), `while`, `break`, `continue`, `pass` e laços aninhados;
+- análise semântica: `break`/`continue` fora de laço recusados antes da execução (código de saída `1` e nenhuma saída);
 - comentários, linhas em branco, expressões multi-linha entre parênteses e programa vazio;
 - construções fora do subconjunto (`def`, `for`, listas, `+=`, `elif`) e outros erros sintáticos, com código de saída diferente de zero e sem saída parcial;
 - erros léxicos e de indentação (código de saída `1` e nenhuma execução);
@@ -490,9 +510,9 @@ Para remover os binários e arquivos gerados:
 make clean
 ```
 
-O ponto de entrada está em `src/main.c`; a gramática mantém a construção da
-AST e a função `executar_programa()`, chamada pelo executável após um parse
-bem-sucedido.
+O ponto de entrada está em `src/main.c`: ele chama o parser e, se não houver
+erros léxicos nem sintáticos, chama `executar_programa()` (em `parser/parser.y`),
+que faz a análise semântica e executa o programa.
 
 ---
 
@@ -545,8 +565,10 @@ else:
 | --- | --- |
 | Analisador léxico (`lexer.l`) | Completo ✅ |
 | Testes do lexer | Completo ✅ |
-| Analisador sintático (`parser.y`) | Funcional para o subconjunto implementado ⚠️ |
-| Interpretador (embutido no parser) | Funcional para o subconjunto implementado ⚠️ |
+| Analisador sintático (`parser.y`) | Completo para o subconjunto definido ✅ |
+| Análise semântica (`break`/`continue` fora de laço) | Completo ✅ |
+| Interpretador (epílogo do `parser.y`) | Completo para o subconjunto definido ✅ |
+| AST, valores e tabela de símbolos (`src/`) | Completo ✅ |
 | Ponto de entrada (`main.c`) | Completo ✅ |
 | Makefile | Completo ✅ |
 | Testes do parser e interpretador | Completo ✅ |
@@ -554,18 +576,22 @@ else:
 | Tratamento de erros de execução | Completo ✅ (interrompe com código `1`; sem número de linha) |
 | Cobertura de casos negativos e de todos os comandos | Completo ✅ |
 
-O projeto ainda não está completo. Os recursos listados em **Recursos ainda
-não implementados** continuam fora do subconjunto suportado, e algumas
-melhorias de robustez ainda são necessárias.
+Esta é a versão final do projeto. O interpretador implementa todo o
+subconjunto definido em **Escopo do subconjunto**, com testes automatizados para
+cada funcionalidade e para os casos de erro.
 
-### Próximos passos recomendados
+### Limitações conhecidas
 
-A sequência planejada para continuar o desenvolvimento é:
+- **Inteiros de 64 bits:** o Python não tem limite para inteiros; aqui, um
+  resultado fora do intervalo de 64 bits gera `OverflowError` (ver
+  [docs/problemas-e-solucoes.md](docs/problemas-e-solucoes.md)).
+- **Mensagens de erro:** os erros léxicos e sintáticos informam a linha, mas não
+  a coluna; os erros de execução não informam a linha, porque a AST não guarda a
+  posição de cada nó.
+- **Memória:** a AST, os valores e a tabela de símbolos não são liberados ao fim
+  da execução. Como o processo termina logo em seguida, o sistema operacional
+  recupera a memória, mas um uso como biblioteca exigiria essa liberação.
+- **Tabs e espaços misturados:** o Python 3 recusa (`TabError`) indentação que
+  mistura tabs e espaços de forma ambígua; o interpretador não faz essa
+  verificação.
 
-1. **Melhorar as mensagens de erro:** incluir coluna e trecho problemático.
-2. **Corrigir vazamentos de memória:** liberar a AST, strings, valores e
-    estruturas de escopo ao final da compilação ou da execução.
-3. **Congelar o escopo reduzido:** o subconjunto atual (sem funções do
-    usuário, listas, `for`, `elif` e atribuição composta) é o alvo da entrega;
-    novos recursos só devem entrar se o enunciado exigir, atualizando os
-    testes e esta documentação.
