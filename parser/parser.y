@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <ctype.h>
 
 int yylex(void);
 void yyerror(const char *s);
@@ -374,6 +375,12 @@ static Value *eval_expr(Node *n, Scope *sc);
 static void exec_stmt(Node *n, Scope *sc);
 static void exec_block(Node *block, Scope *sc);
 
+/* Verdadeiro se o resto da string so tem espacos (o Python aceita " 42 "). */
+static int only_spaces(const char *p) {
+    while (isspace((unsigned char)*p)) p++;
+    return *p == '\0';
+}
+
 static const char *op_symbol(long op) {
     switch (op) {
         case OP_MAIS: return "+";
@@ -403,12 +410,39 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         return new_none();
     }
     if (strcmp(name, "int") == 0) {
+        if (!args) return new_int(0);
         Value *v = eval_expr(args, sc);
-        return new_int((long) as_double(v));
+        switch (v->type) {
+            case V_INT: case V_BOOL: return new_int(v->ival);
+            case V_FLOAT: return new_int((long) v->dval);
+            case V_STR: {
+                char *end;
+                long x = strtol(v->sval, &end, 10);
+                if (end == v->sval || !only_spaces(end))
+                    runtime_error("ValueError: literal invalido para int(): '%s'", v->sval);
+                return new_int(x);
+            }
+            case V_NONE:
+                runtime_error("TypeError: int() nao aceita '%s'", type_name(v));
+        }
+        return new_none();
     }
     if (strcmp(name, "float") == 0) {
+        if (!args) return new_float(0.0);
         Value *v = eval_expr(args, sc);
-        return new_float(as_double(v));
+        switch (v->type) {
+            case V_INT: case V_BOOL: case V_FLOAT: return new_float(as_double(v));
+            case V_STR: {
+                char *end;
+                double x = strtod(v->sval, &end);
+                if (end == v->sval || !only_spaces(end))
+                    runtime_error("ValueError: nao foi possivel converter para float: '%s'", v->sval);
+                return new_float(x);
+            }
+            case V_NONE:
+                runtime_error("TypeError: float() nao aceita '%s'", type_name(v));
+        }
+        return new_none();
     }
     if (strcmp(name, "str") == 0) {
         Value *v = eval_expr(args, sc);

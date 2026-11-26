@@ -225,6 +225,26 @@ class ParserInterpreterTests(unittest.TestCase):
             with self.subTest(expr=expr):
                 self.assert_runtime_error(f"print({expr})\n", "TypeError")
 
+    def test_int_and_float_convert_strings(self):
+        self.assert_program_output(
+            'print(int("42"))\nprint(int(" -7 "))\nprint(float("3.5"))\nprint(float("2"))\n'
+            "print(int(3.9))\nprint(int(-3.9))\nprint(int(True))\nprint(int())\nprint(float())\n",
+            "42\n-7\n3.5\n2.0\n3\n-3\n1\n0\n0.0\n",
+        )
+
+    def test_invalid_conversions_are_errors(self):
+        cases = (
+            ('int("abc")', "ValueError"),
+            ('int("3.5")', "ValueError"),
+            ('int("")', "ValueError"),
+            ('float("x1")', "ValueError"),
+            ("int(None)", "TypeError"),
+            ("float(None)", "TypeError"),
+        )
+        for expr, error in cases:
+            with self.subTest(expr=expr):
+                self.assert_runtime_error(f"print({expr})\n", error)
+
     # ---------- variaveis ----------
 
     def test_variable_reassignment_and_chaining(self):
