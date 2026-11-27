@@ -37,6 +37,44 @@ símbolos do Python, mas o parser os rejeita com `ERRO DE SINTAXE`.
 
 ---
 
+## Guia Rápido (Compilação, Testes e Execução)
+
+> **Pré-requisitos:** `gcc`, `flex`, `bison`, `make` e `python3` (ambiente Linux ou WSL recomendado).
+
+### 1. Compilar o interpretador
+```bash
+make
+```
+Gera o executável `compilador` na raiz do projeto.
+
+### 2. Rodar a bateria de testes automatizados
+O projeto conta com **98 testes automatizados** cobrindo análise léxica, sintática, semântica e execução:
+```bash
+# Executa todos os 98 testes:
+make test
+
+# Ou execute por etapa isoladamente:
+make test-lexer     # 28 testes unitários do lexer
+make test-parser    # 70 testes do parser e interpretador
+```
+*(Saída esperada: `Ran 28 tests ... OK` e `Ran 70 tests ... OK`)*
+
+### 3. Executar manualmente um programa Python
+```bash
+# Executar a partir de um arquivo:
+./compilador caminho/para/programa.py
+
+# Ou interativamente via terminal (digite o código e envie EOF com Ctrl+D):
+./compilador
+```
+
+### 4. Limpar arquivos compilados
+```bash
+make clean
+```
+
+---
+
 ## Estrutura do Repositório
 
 ```text
