@@ -22,6 +22,7 @@ typedef struct Node {
     char *sval;
     struct Node *a, *b, *c;
     struct Node *next; /* encadeamento: statements e argumentos */
+    struct Value *valor; /* literais: valor criado uma vez e reaproveitado */
 } Node;
 
 /* Cria um no vazio do tipo t. */

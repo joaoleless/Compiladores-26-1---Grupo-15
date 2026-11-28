@@ -586,6 +586,109 @@ class ParserInterpreterTests(unittest.TestCase):
             "1\n3\nfim\n",
         )
 
+    # ---------- regressoes (bugs corrigidos) ----------
+
+    def test_else_block_starting_with_if_runs_all_statements(self):
+        self.assert_program_output(
+            "a = 0\n"
+            "if a:\n"
+            "    print(\"a\")\n"
+            "else:\n"
+            "    if a == 0:\n"
+            "        print(\"zero\")\n"
+            "    print(\"depois do if interno\")\n"
+            "print(\"fim\")\n",
+            "zero\ndepois do if interno\nfim\n",
+        )
+
+    def test_large_integer_comparisons_are_exact(self):
+        self.assert_program_output(
+            "print(9007199254740993 == 9007199254740992)\n"
+            "print(9007199254740993 > 9007199254740992)\n"
+            "print(9007199254740993 == 9007199254740992.0)\n"
+            "print(1 == 1.0, 2 < 2.5, 3.5 > 3, True == 1)\n",
+            "False\nTrue\nFalse\nTrue True True True\n",
+        )
+
+    def test_nan_comparisons(self):
+        self.assert_program_output(
+            "n = float(\"nan\")\n"
+            "print(n == n, n != n, n < 1, 1 < n)\n",
+            "False True False False\n",
+        )
+
+    def test_str_without_arguments_is_empty_string(self):
+        self.assert_program_output("print(\"[\" + str() + \"]\")\n", "[]\n")
+
+    def test_conversion_with_too_many_arguments_is_type_error(self):
+        for source in ("int(\"ff\", 16)\n", "float(1, 2)\n", "str(1, 2)\n"):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("TypeError", result.stderr)
+
+    def test_print_has_no_partial_output_on_error(self):
+        result = self.run_program("print(1, y)\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+
+    def test_power_edge_cases(self):
+        for source, error in (
+            ("print(0 ** -1)\n", "ZeroDivisionError"),
+            ("print(0.0 ** -2)\n", "ZeroDivisionError"),
+            ("print(2.0 ** 10000)\n", "OverflowError"),
+            ("print((-8) ** 0.5)\n", "ValueError"),
+        ):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(error, result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_float_floor_division_and_modulo_match_python(self):
+        self.assert_program_output(
+            "print(7 // 0.1)\nprint(-1.0 % 1.0)\nprint(1.0 % -1.0)\nprint(-7.5 // 2)\nprint(-7.5 % 2)\n",
+            "69.0\n0.0\n-0.0\n-4.0\n0.5\n",
+        )
+
+    def test_float_and_int_conversion_edge_cases(self):
+        for source, error in (
+            ("float(\"0x10\")\n", "ValueError"),
+            ("int(float(\"nan\"))\n", "ValueError"),
+            ("int(float(\"inf\"))\n", "OverflowError"),
+        ):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(error, result.stderr)
+
+    def test_more_escape_sequences(self):
+        self.assert_program_output(
+            "print(\"a\\rb\" == \"a\" + \"\\r\" + \"b\")\nprint(\"x\\dy\")\n",
+            "True\nx\\dy\n",
+        )
+
+    def test_trailing_whitespace_or_comment_without_newline_at_eof(self):
+        for source in ("x = 1\nprint(x)\n    ", "x = 1\nprint(x)\n    # fim",
+                       "if 1:\n    print(1)\n  # fim"):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "1\n")
+
+    def test_unterminated_string_and_leading_zeros_are_lexical_errors(self):
+        for source in ("print(\"abc)\n", "print(007)\n"):
+            with self.subTest(source=source):
+                result = self.run_program(source)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("ERRO LEXICO", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_syntax_error_at_end_of_line_reports_that_line(self):
+        result = self.run_program("x = 1\ny = 2 +\nz = 3\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("linha 2", result.stderr)
+
     # ---------- executavel ----------
 
     def test_missing_input_file_fails(self):

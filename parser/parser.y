@@ -13,6 +13,7 @@
 int yylex(void);
 void yyerror(const char *s);
 extern int linha_atual;
+extern int linha_token;
 
 #include "ast.h"
 #include "valores.h"
@@ -272,6 +273,20 @@ static const char *op_symbol(long op) {
     return "?";
 }
 
+/* Compara um inteiro com um float sem perder precisao, como o Python
+   (converter o inteiro para double arredonda valores acima de 2^53).
+   Devolve -1, 0 ou 1; devolve 2 se o float for NaN. */
+static int cmp_long_double(long i, double d) {
+    if (isnan(d)) return 2;
+    if (d >= 9223372036854775808.0) return -1;
+    if (d < -9223372036854775808.0) return 1;
+    double t = trunc(d);
+    long ti = (long) t;
+    if (i != ti) return i < ti ? -1 : 1;
+    double frac = d - t;
+    return frac > 0 ? -1 : (frac < 0 ? 1 : 0);
+}
+
 /* Resultado (0 ou 1) de l op r, com as regras do Python para cada tipo. */
 static int compare_values(long op, Value *l, Value *r) {
     if (l->type == V_STR && r->type == V_STR) {
@@ -294,35 +309,87 @@ static int compare_values(long op, Value *l, Value *r) {
         runtime_error("TypeError: '%s' nao suportado entre '%s' e '%s'",
                       op_symbol(op), type_name(l), type_name(r));
     }
-    double a = as_double(l), b = as_double(r);
+    int c;
+    if (!is_floaty(l) && !is_floaty(r)) {          /* int/bool com int/bool */
+        long a = as_long(l), b = as_long(r);
+        c = (a > b) - (a < b);
+    } else if (is_floaty(l) && is_floaty(r)) {     /* float com float */
+        double a = l->dval, b = r->dval;
+        c = (isnan(a) || isnan(b)) ? 2 : (a > b) - (a < b);
+    } else if (is_floaty(r)) {                     /* int com float */
+        c = cmp_long_double(as_long(l), r->dval);
+    } else {                                       /* float com int */
+        c = cmp_long_double(as_long(r), l->dval);
+        if (c != 2) c = -c;
+    }
+    if (c == 2) return op == OP_DIFERENTE; /* NaN: so != e verdadeiro */
     switch (op) {
-        case OP_MENOR: return a < b;
-        case OP_MAIOR: return a > b;
-        case OP_MENOR_IGUAL: return a <= b;
-        case OP_MAIOR_IGUAL: return a >= b;
-        case OP_IGUAL_IGUAL: return a == b;
-        case OP_DIFERENTE: return a != b;
+        case OP_MENOR: return c < 0;
+        case OP_MAIOR: return c > 0;
+        case OP_MENOR_IGUAL: return c <= 0;
+        case OP_MAIOR_IGUAL: return c >= 0;
+        case OP_IGUAL_IGUAL: return c == 0;
+        case OP_DIFERENTE: return c != 0;
     }
     return 0;
 }
 
+/* // e % de floats como o Python (float_divmod do CPython): o resto tem o
+   sinal do divisor e o quociente e arredondado para baixo. */
+static void float_divmod(double vx, double wx, double *floordiv, double *resto) {
+    double mod = fmod(vx, wx);
+    double div = (vx - mod) / wx;
+    if (mod != 0.0) {
+        if ((wx < 0) != (mod < 0)) { mod += wx; div -= 1.0; }
+    } else {
+        mod = copysign(0.0, wx);
+    }
+    double fd;
+    if (div != 0.0) {
+        fd = floor(div);
+        if (div - fd > 0.5) fd += 1.0;
+    } else {
+        fd = copysign(0.0, vx / wx);
+    }
+    *floordiv = fd;
+    *resto = mod;
+}
+
+static int count_args(Node *args) {
+    int n = 0;
+    for (; args; args = args->next) n++;
+    return n;
+}
+
 static Value *call_function(const char *name, Node *args, Scope *sc) {
+    int nargs = count_args(args);
     if (strcmp(name, "print") == 0) {
-        int first = 1;
-        for (Node *a = args; a; a = a->next) {
-            if (!first) printf(" ");
-            print_value(eval_expr(a, sc));
-            first = 0;
+        /* Como no Python, todos os argumentos sao avaliados antes de imprimir:
+           um erro em qualquer argumento nao deixa saida parcial. */
+        Value **vals = malloc(sizeof(Value *) * (nargs > 0 ? nargs : 1));
+        int i = 0;
+        for (Node *a = args; a; a = a->next) vals[i++] = eval_expr(a, sc);
+        for (i = 0; i < nargs; i++) {
+            if (i > 0) printf(" ");
+            print_value(vals[i]);
         }
         printf("\n");
+        free(vals);
         return new_none();
     }
+    if ((strcmp(name, "int") == 0 || strcmp(name, "float") == 0 || strcmp(name, "str") == 0)
+        && nargs > 1)
+        runtime_error("TypeError: %s() aceita no maximo 1 argumento (%d dados)", name, nargs);
     if (strcmp(name, "int") == 0) {
         if (!args) return new_int(0);
         Value *v = eval_expr(args, sc);
         switch (v->type) {
             case V_INT: case V_BOOL: return new_int(v->ival);
             case V_FLOAT:
+                if (isnan(v->dval))
+                    runtime_error("ValueError: nao e possivel converter float NaN para int");
+                if (isinf(v->dval))
+                    runtime_error("OverflowError: nao e possivel converter float infinito para int");
                 /* -2^63 e exato em double; 2^63 ja nao cabe em long. */
                 if (!(v->dval >= -9223372036854775808.0 && v->dval < 9223372036854775808.0))
                     int_overflow();
@@ -349,7 +416,8 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
             case V_STR: {
                 char *end;
                 double x = strtod(v->sval, &end);
-                if (end == v->sval || !only_spaces(end))
+                /* strtod aceita hexadecimal ("0x10") e "nan(...)"; o Python nao */
+                if (end == v->sval || !only_spaces(end) || strpbrk(v->sval, "xX("))
                     runtime_error("ValueError: nao foi possivel converter para float: '%s'", v->sval);
                 return new_float(x);
             }
@@ -359,6 +427,7 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
         return new_none();
     }
     if (strcmp(name, "str") == 0) {
+        if (!args) return new_str(""); /* str() == '' */
         Value *v = eval_expr(args, sc);
         char buf[128];
         switch (v->type) {
@@ -376,9 +445,17 @@ static Value *call_function(const char *name, Node *args, Scope *sc) {
 static Value *eval_expr(Node *n, Scope *sc) {
     if (!n) return new_none();
     switch (n->type) {
-        case N_INT: return new_int(n->ival);
-        case N_FLOAT: return new_float(n->dval);
-        case N_STR: return new_str(n->sval);
+        /* Literais: o valor e criado na primeira avaliacao e reaproveitado
+           (valores sao imutaveis), evitando uma alocacao a cada repeticao. */
+        case N_INT:
+            if (!n->valor) n->valor = new_int(n->ival);
+            return n->valor;
+        case N_FLOAT:
+            if (!n->valor) n->valor = new_float(n->dval);
+            return n->valor;
+        case N_STR:
+            if (!n->valor) n->valor = new_str(n->sval);
+            return n->valor;
         case N_BOOL: return new_bool(n->ival);
         case N_NONE: return new_none();
         case N_VAR: {
@@ -487,7 +564,11 @@ static Value *eval_expr(Node *n, Scope *sc) {
                 /* Python arredonda // para baixo (piso) e o resto de % tem o sinal
                    do divisor; em C, / e % truncam em direcao a zero. */
                 case OP_DIVISAO_INTEIRA: {
-                    if (floaty) return new_float(floor(a / b));
+                    if (floaty) {
+                        double q, m;
+                        float_divmod(a, b, &q, &m);
+                        return new_float(q);
+                    }
                     long x = as_long(l), y = as_long(r);
                     if (x == LONG_MIN && y == -1) int_overflow();
                     long q = x / y;
@@ -496,8 +577,8 @@ static Value *eval_expr(Node *n, Scope *sc) {
                 }
                 case OP_MODULO: {
                     if (floaty) {
-                        double m = fmod(a, b);
-                        if (m != 0.0 && ((m < 0) != (b < 0))) m += b;
+                        double q, m;
+                        float_divmod(a, b, &q, &m);
                         return new_float(m);
                     }
                     long x = as_long(l), y = as_long(r);
@@ -507,8 +588,18 @@ static Value *eval_expr(Node *n, Scope *sc) {
                     return new_int(m);
                 }
                 case OP_POTENCIA: {
+                    if (a == 0.0 && b < 0)
+                        runtime_error("ZeroDivisionError: zero elevado a potencia negativa");
                     long e = as_long(r);
-                    if (floaty || e < 0) return new_float(pow(a, b));
+                    if (floaty || e < 0) {
+                        if (a < 0 && isfinite(b) && b != floor(b))
+                            runtime_error("ValueError: base negativa com expoente fracionario "
+                                          "(resultado complexo nao suportado)");
+                        double p = pow(a, b);
+                        if (isinf(p) && isfinite(a) && isfinite(b))
+                            runtime_error("OverflowError: resultado fora do intervalo de float");
+                        return new_float(p);
+                    }
                     /* Exponenciacao inteira por quadrados, detectando estouro. */
                     long base = as_long(l), res = 1;
                     while (e > 0) {
@@ -546,8 +637,9 @@ static void exec_stmt(Node *n, Scope *sc) {
             if (truthy(eval_expr(n->a, sc))) {
                 exec_block(n->b, sc);
             } else if (n->c) {
-                if (n->c->type == N_IF) exec_stmt(n->c, sc);
-                else exec_block(n->c, sc);
+                /* o else e sempre um bloco (lista de comandos), mesmo que o
+                   primeiro comando seja outro if */
+                exec_block(n->c, sc);
             }
             break;
         case N_WHILE:
@@ -571,7 +663,7 @@ static void exec_stmt(Node *n, Scope *sc) {
 }
 
 void yyerror(const char *s) {
-    fprintf(stderr, "ERRO DE SINTAXE na linha %d: %s\n", linha_atual, s);
+    fprintf(stderr, "ERRO DE SINTAXE na linha %d: %s\n", linha_token, s);
 }
 
 /* ===================== Analise semantica ===================== */

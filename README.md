@@ -48,16 +48,16 @@ make
 Gera o executável `compilador` na raiz do projeto.
 
 ### 2. Rodar a bateria de testes automatizados
-O projeto conta com **98 testes automatizados** cobrindo análise léxica, sintática, semântica e execução:
+O projeto conta com **111 testes automatizados** cobrindo análise léxica, sintática, semântica e execução:
 ```bash
-# Executa todos os 98 testes:
+# Executa todos os 111 testes:
 make test
 
 # Ou execute por etapa isoladamente:
 make test-lexer     # 28 testes unitários do lexer
-make test-parser    # 70 testes do parser e interpretador
+make test-parser    # 83 testes do parser e interpretador
 ```
-*(Saída esperada: `Ran 28 tests ... OK` e `Ran 70 tests ... OK`)*
+*(Saída esperada: `Ran 28 tests ... OK` e `Ran 83 tests ... OK`)*
 
 ### 3. Executar manualmente um programa Python
 ```bash

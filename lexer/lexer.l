@@ -14,6 +14,7 @@
 #define YY_DECL int flex_scan(void)
 
 int linha_atual = 1;
+int linha_token = 1;   /* linha do ultimo token devolvido (usada nos erros de sintaxe) */
 int erros_lexicos = 0; /* erros lexicos/de indentacao encontrados */
 
 /* --- controle de indentação --- */
@@ -68,10 +69,16 @@ static char *unescape(const char *s) {
             switch (s[i]) {
                 case 'n': out[oi++] = '\n'; break;
                 case 't': out[oi++] = '\t'; break;
+                case 'r': out[oi++] = '\r'; break;
+                case 'a': out[oi++] = '\a'; break;
+                case 'b': out[oi++] = '\b'; break;
+                case 'f': out[oi++] = '\f'; break;
+                case 'v': out[oi++] = '\v'; break;
                 case '\\': out[oi++] = '\\'; break;
                 case '"': out[oi++] = '"'; break;
                 case '\'': out[oi++] = '\''; break;
-                default: out[oi++] = s[i]; break;
+                /* escape desconhecido: o Python mantem a barra ("\d" -> \d) */
+                default: out[oi++] = '\\'; out[oi++] = s[i]; break;
             }
         } else {
             out[oi++] = s[i];
@@ -94,13 +101,15 @@ ID          {LETTER}({LETTER}|{DIGIT})*
 INTEGER     {DIGIT}+
 EXP         [eE][+-]?{DIGIT}+
 FLOAT       ({DIGIT}+"."{DIGIT}*|"."{DIGIT}+){EXP}?|{DIGIT}+{EXP}
-STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
+STRING      \"([^\"\\\n]|\\.)*\"|\'([^\'\\\n]|\\.)*\'
+STRING_ABERTA \"([^\"\\\n]|\\.)*|\'([^\'\\\n]|\\.)*
 
 %%
 
     /* ---------- estado BOL: inicio de linha logica, calcula indentacao ---------- */
 <BOL>[ \t]*"#".*\n     { linha_atual++; /* linha so com comentario: ignora */ }
 <BOL>[ \t]*\r?\n        { linha_atual++; /* linha em branco: ignora (aceita \r\n do Windows) */ }
+<BOL>[ \t]*"#".*        { /* comentario na ultima linha, sem '\n' no fim: ignora */ }
 <BOL><<EOF>>           {
                             if (indent_top > 0) {
                                 pending_dedents = indent_top - 1;
@@ -112,10 +121,13 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
     /* nota: usamos [ \t]+ (1 ou mais) e um fallback <BOL>. separado, porque o flex
        nao dispara de forma confiavel uma regra que so casa string vazia logo no
        inicio do escaneamento (caso de uma linha sem nenhuma indentacao). */
-<BOL>[ \t]+            { process_indent(yytext); BEGIN(INITIAL);
+    /* o contexto exige um caractere visivel depois dos espacos: espacos na ultima
+       linha, sem '\n' no fim, caem na regra seguinte e sao ignorados */
+<BOL>[ \t]+/[^ \t\r\n]      { process_indent(yytext); BEGIN(INITIAL);
                           if (last_indent_action == 1) return INDENT;
                           if (last_indent_action == 2) return DEDENT;
                         }
+<BOL>[ \t]+            { /* espacos na ultima linha, sem '\n' no fim: ignora */ }
 <BOL>.                 {
                             yyless(0); /* devolve o caractere: ele sera lido de novo em INITIAL */
                             process_indent("");
@@ -163,6 +175,13 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 
 {ID}        { yylval.str = strdup(yytext); return IDENTIFICADOR; }
 {FLOAT}     { yylval.dval = atof(yytext);   return FLUTUANTE; }
+0+[1-9]{DIGIT}* {
+                /* o Python recusa zeros a esquerda em inteiros (ex.: 007) */
+                fprintf(stderr, "ERRO LEXICO: zeros a esquerda nao permitidos no inteiro '%s' na linha %d\n", yytext, linha_atual);
+                erros_lexicos++;
+                yylval.ival = 0;
+                return INTEIRO;
+            }
 {INTEGER}   {
                 errno = 0;
                 yylval.ival = strtol(yytext, NULL, 10);
@@ -173,6 +192,12 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
                 return INTEIRO;
             }
 {STRING}    { yylval.str = unescape(yytext); return TEXTO; }
+{STRING_ABERTA} {
+                fprintf(stderr, "ERRO LEXICO: string nao terminada na linha %d\n", linha_atual);
+                erros_lexicos++;
+                yylval.str = strdup("");
+                return TEXTO;
+            }
 
 "**="       { return OP_ATRIBUICAO_POTENCIA; }
 "//="       { return OP_ATRIBUICAO_DIVISAO_INTEIRA; }
@@ -226,6 +251,7 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
 [ \t]+      { /* espacos fora do inicio de linha: ignora */ }
 
 \r?\n        { /* fim de linha: \n (Linux/macOS) ou \r\n (Windows), como no Python */
+                linha_token = linha_atual; /* a NOVA_LINHA pertence a linha que termina */
                 linha_atual++;
                 if (paren_depth > 0) {
                     /* dentro de ( [ {  quebras de linha nao contam */
@@ -240,6 +266,7 @@ STRING      \"([^\"\\]|\\.)*\"|\'([^\'\\]|\\.)*\'
                    encerrada, entao emitimos a NOVA_LINHA que faltou e voltamos ao
                    estado BOL, que fecha os blocos abertos com DEDENT. */
                 if (paren_depth == 0 && ultimo_token != 0 && ultimo_token != NOVA_LINHA) {
+                    linha_token = linha_atual;
                     BEGIN(BOL);
                     return NOVA_LINHA;
                 }
@@ -263,7 +290,10 @@ int yylex(void) {
     }
     if (pending_dedents > 0) {
         pending_dedents--;
+        linha_token = linha_atual;
         return ultimo_token = DEDENT;
     }
-    return ultimo_token = flex_scan();
+    ultimo_token = flex_scan();
+    if (ultimo_token != NOVA_LINHA) linha_token = linha_atual;
+    return ultimo_token;
 }

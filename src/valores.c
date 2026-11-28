@@ -6,8 +6,13 @@
 Value *new_int(long v)    { Value *x = calloc(1,sizeof(Value)); x->type=V_INT; x->ival=v; return x; }
 Value *new_float(double v){ Value *x = calloc(1,sizeof(Value)); x->type=V_FLOAT; x->dval=v; return x; }
 Value *new_str(const char *s){ Value *x = calloc(1,sizeof(Value)); x->type=V_STR; x->sval=strdup(s); return x; }
-Value *new_bool(int b)    { Value *x = calloc(1,sizeof(Value)); x->type=V_BOOL; x->ival=b?1:0; return x; }
-Value *new_none(void)     { Value *x = calloc(1,sizeof(Value)); x->type=V_NONE; return x; }
+/* Valores nunca sao alterados depois de criados, entao True, False e None
+   podem ser compartilhados (como no Python), sem alocar a cada uso. */
+static Value valor_true  = { V_BOOL, 1, 0.0, NULL };
+static Value valor_false = { V_BOOL, 0, 0.0, NULL };
+static Value valor_none  = { V_NONE, 0, 0.0, NULL };
+Value *new_bool(int b)    { return b ? &valor_true : &valor_false; }
+Value *new_none(void)     { return &valor_none; }
 
 double as_double(Value *v) {
     switch (v->type) {
